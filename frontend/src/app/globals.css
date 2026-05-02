@@ -1,0 +1,67 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #f0f0f0;
+  --foreground: #000000;
+  --primary: #FFD100;
+  --secondary: #FF5C00;
+  --accent: #00E5FF;
+  --success: #00FF41;
+  --border-width: 4px;
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  font-family: 'Inter', sans-serif;
+}
+
+@layer components {
+  .neo-border {
+    border: var(--border-width) solid #000000;
+  }
+
+  .neo-shadow {
+    box-shadow: 8px 8px 0px 0px #000000;
+  }
+
+  .neo-shadow-sm {
+    box-shadow: 4px 4px 0px 0px #000000;
+  }
+
+  .neo-shadow-hover:hover {
+    box-shadow: 12px 12px 0px 0px #000000;
+    transform: translate(-4px, -4px);
+    transition: all 0.2s ease;
+  }
+
+  .neo-button {
+    @apply neo-border neo-shadow-sm px-6 py-2 font-bold uppercase transition-all;
+    background: var(--primary);
+  }
+
+  .neo-button:hover {
+    @apply neo-shadow;
+    transform: translate(-2px, -2px);
+  }
+
+  .neo-button:active {
+    box-shadow: 0px 0px 0px 0px #000000;
+    transform: translate(4px, 4px);
+  }
+
+  .neo-card {
+    @apply neo-border neo-shadow p-6 bg-white;
+  }
+
+  .neo-input {
+    @apply neo-border px-4 py-2 w-full outline-none;
+  }
+
+  .neo-input:focus {
+    @apply neo-shadow-sm;
+    background: #fff;
+  }
+}
