@@ -1,84 +1,114 @@
 'use client';
 
-import ProgressTracker from '@/components/ProgressTracker';
-import { motion } from 'framer-motion';
+import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { Shield, Clock, Hash, ExternalLink } from 'lucide-react';
+import { ExternalLink, FileCheck2, Hash, ShieldCheck, Weight } from 'lucide-react';
+import ProgressTracker from '@/components/ProgressTracker';
+import { StatusBadge } from '@/components/StatusBadge';
+import { api } from '@/lib/api';
+import type { Batch, TrackingLog } from '@/lib/types';
 
 export default function TrackingPage() {
-  const { batchId } = useParams();
+  const { batchId } = useParams<{ batchId: string }>();
+  const [batch, setBatch] = useState<Batch | null>(null);
+  const [logs, setLogs] = useState<TrackingLog[]>([]);
 
-  // Mock data - in real app, fetch from backend/blockchain
-  const batchData = {
-    id: batchId,
-    status: 'InTransit',
-    institution: 'Green High School',
-    recycler: 'EcoProcess Plants',
-    ngo: 'Books For All',
-    weight: '150kg',
-    txHash: '0x123...abc',
-    ipfsHash: 'QmXoy...123',
-    logs: [
-      { status: 'Created', time: '2024-05-01 10:00 AM', msg: 'Batch created at Green High School' },
-      { status: 'Accepted', time: '2024-05-01 02:00 PM', msg: 'Pickup accepted by EcoProcess Plants' },
-      { status: 'PickedUp', time: '2024-05-02 09:00 AM', msg: 'Batch collected from institution' },
-      { status: 'InTransit', time: '2024-05-02 11:30 AM', msg: 'On the way to recycling plant' },
-    ]
-  };
+  useEffect(() => {
+    api.tracking(batchId).then((data) => {
+      setBatch(data.batch);
+      setLogs(data.logs);
+    });
+  }, [batchId]);
+
+  if (!batch) {
+    return <div className="neo-card p-8 text-xl font-black uppercase">Loading batch tracker...</div>;
+  }
+
+  const txHash = Object.values(batch.txHashes || {}).find(Boolean);
 
   return (
-    <div className="max-w-5xl mx-auto space-y-12">
-      <header className="flex justify-between items-start">
+    <div className="space-y-8">
+      <header className="flex flex-col justify-between gap-4 md:flex-row md:items-start">
         <div>
-          <h1 className="text-5xl font-black uppercase tracking-tighter">Track Batch {batchId}</h1>
-          <p className="text-xl font-bold opacity-70">Real-time Blockchain Status</p>
+          <p className="font-black uppercase text-[var(--coral)]">Tracking</p>
+          <h1 className="mt-2 text-4xl font-black uppercase md:text-6xl">Batch #{batch.batchId}</h1>
+          <p className="mt-2 text-lg font-bold">{batch.title}</p>
         </div>
-        <div className="neo-card bg-success py-2 px-4 font-black uppercase text-sm">
-          Secured by Polygon
-        </div>
+        <StatusBadge status={batch.status} />
       </header>
 
-      {/* Main Tracker */}
-      <section className="neo-card bg-white overflow-x-auto">
-        <ProgressTracker currentStatus={batchData.status} />
+      <section className="neo-card bg-white p-4">
+        <ProgressTracker currentStatus={batch.status} />
       </section>
 
-      <div className="grid md:grid-cols-2 gap-8">
-        {/* Batch Info */}
-        <div className="space-y-6">
-          <h2 className="text-3xl font-black uppercase tracking-tighter">Details</h2>
-          <div className="neo-card bg-primary space-y-4">
-             <div className="flex justify-between border-b-2 border-black pb-2">
-                <span className="font-black uppercase flex items-center gap-2"><Shield size={18}/> TX Hash</span>
-                <span className="font-mono font-bold truncate w-40">{batchData.txHash}</span>
-             </div>
-             <div className="flex justify-between border-b-2 border-black pb-2">
-                <span className="font-black uppercase flex items-center gap-2"><Hash size={18}/> IPFS Hash</span>
-                <span className="font-mono font-bold truncate w-40">{batchData.ipfsHash} <ExternalLink size={14} className="inline"/></span>
-             </div>
-             <div className="flex justify-between">
-                <span className="font-black uppercase flex items-center gap-2"><Clock size={18}/> Current Weight</span>
-                <span className="font-black text-2xl">{batchData.weight}</span>
-             </div>
+      <div className="grid gap-6 lg:grid-cols-[390px_1fr]">
+        <aside className="space-y-4">
+          <div className="neo-card bg-[var(--yellow)] p-5">
+            <h2 className="flex items-center gap-2 text-xl font-black uppercase">
+              <ShieldCheck size={22} />
+              Verification
+            </h2>
+            <div className="mt-5 space-y-4 font-bold">
+              <div className="flex items-start justify-between gap-4 border-b-2 border-black pb-3">
+                <span className="flex items-center gap-2"><Weight size={17} /> Weight</span>
+                <strong>{batch.weight} kg</strong>
+              </div>
+              <div className="flex items-start justify-between gap-4 border-b-2 border-black pb-3">
+                <span className="flex items-center gap-2"><FileCheck2 size={17} /> IPFS</span>
+                <a className="max-w-[160px] truncate underline" href={`https://gateway.pinata.cloud/ipfs/${batch.ipfsHash}`} target="_blank" rel="noreferrer">
+                  {batch.ipfsHash}
+                </a>
+              </div>
+              <div className="flex items-start justify-between gap-4">
+                <span className="flex items-center gap-2"><Hash size={17} /> TX</span>
+                {txHash ? (
+                  <a className="max-w-[160px] truncate underline" href={`https://amoy.polygonscan.com/tx/${txHash}`} target="_blank" rel="noreferrer">
+                    {txHash}
+                  </a>
+                ) : (
+                  <span>Pending</span>
+                )}
+              </div>
+            </div>
           </div>
-        </div>
 
-        {/* Live Logs */}
-        <div className="space-y-6">
-           <h2 className="text-3xl font-black uppercase tracking-tighter">Tracking Logs</h2>
-           <div className="space-y-4 max-h-[400px] overflow-y-auto pr-4">
-              {batchData.logs.reverse().map((log, i) => (
-                <div key={i} className="neo-card p-4 flex gap-4 bg-white">
-                   <div className={`w-2 h-full ${i === 0 ? 'bg-secondary' : 'bg-gray-200'}`} />
-                   <div className="space-y-1">
-                      <p className="font-black uppercase text-sm">{log.status}</p>
-                      <p className="font-bold text-lg">{log.msg}</p>
-                      <p className="text-xs font-bold opacity-50">{log.time}</p>
-                   </div>
+          <div className="neo-card bg-white p-5">
+            <h2 className="text-xl font-black uppercase">Impact Estimate</h2>
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              <div className="rounded-lg border-2 border-black bg-[var(--cyan)] p-3">
+                <p className="text-xs font-black uppercase">Pages</p>
+                <p className="text-2xl font-black">{batch.pagesEstimate || batch.weight * 200}</p>
+              </div>
+              <div className="rounded-lg border-2 border-black bg-[var(--green)] p-3">
+                <p className="text-xs font-black uppercase">Notebooks</p>
+                <p className="text-2xl font-black">{batch.notebooksEstimate || batch.weight * 5}</p>
+              </div>
+            </div>
+          </div>
+        </aside>
+
+        <section className="neo-card bg-white p-5">
+          <h2 className="text-2xl font-black uppercase">Timeline</h2>
+          <div className="mt-5 space-y-4">
+            {logs.map((log) => (
+              <div key={`${log.status}-${log.createdAt}`} className="flex gap-4 rounded-lg border-2 border-black bg-[var(--paper)] p-4">
+                <div className="mt-1 h-4 w-4 rounded-full border-2 border-black bg-[var(--green)]" />
+                <div className="flex-1">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <p className="font-black uppercase">{log.status}</p>
+                    <p className="text-xs font-black uppercase opacity-60">{new Date(log.createdAt).toLocaleString()}</p>
+                  </div>
+                  <p className="mt-1 font-bold">{log.message}</p>
+                  {log.txHash ? (
+                    <a className="mt-2 inline-flex items-center gap-1 text-xs font-black uppercase underline" href={`https://amoy.polygonscan.com/tx/${log.txHash}`} target="_blank" rel="noreferrer">
+                      View transaction <ExternalLink size={12} />
+                    </a>
+                  ) : null}
                 </div>
-              ))}
-           </div>
-        </div>
+              </div>
+            ))}
+          </div>
+        </section>
       </div>
     </div>
   );

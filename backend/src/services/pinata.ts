@@ -3,13 +3,14 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-const pinata = new pinataSDK(
-  process.env.PINATA_API_KEY,
-  process.env.PINATA_SECRET_API_KEY
-);
+const pinata = new pinataSDK(process.env.PINATA_API_KEY, process.env.PINATA_SECRET_API_KEY);
 
 export const uploadToIPFS = async (data: any) => {
   try {
+    if (!process.env.PINATA_API_KEY || !process.env.PINATA_SECRET_API_KEY) {
+      return `local-${Buffer.from(JSON.stringify(data)).toString('base64url').slice(0, 46)}`;
+    }
+
     const result = await pinata.pinJSONToIPFS(data);
     return result.IpfsHash;
   } catch (error) {

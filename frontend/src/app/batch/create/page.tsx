@@ -1,95 +1,177 @@
 'use client';
 
-import { useState } from 'react';
-import { motion } from 'framer-motion';
-import { Upload, Weight, Info, CheckCircle } from 'lucide-react';
+import { FormEvent, useState } from 'react';
+import Link from 'next/link';
+import { CheckCircle2, FileImage, Hash, Info, Loader2, Upload, Weight } from 'lucide-react';
+import { TxStatus } from '@/components/TxStatus';
+import { useWallet } from '@/hooks/useWallet';
+import { api } from '@/lib/api';
+
+const demoInstitutionId = process.env.NEXT_PUBLIC_DEMO_INSTITUTION_ID || '000000000000000000000001';
+
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
 
 export default function CreateBatch() {
+  const [title, setTitle] = useState('Unused assignment sheets');
+  const [weight, setWeight] = useState(50);
+  const [roomCode, setRoomCode] = useState('');
+  const [addressText, setAddressText] = useState('Mumbai, Maharashtra');
+  const [proofImages, setProofImages] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState(false);
+  const [txHash, setTxHash] = useState<string>();
+  const [createdBatchId, setCreatedBatchId] = useState<number>();
+  const [error, setError] = useState<string>();
+  const { address, signerContract, connectWallet } = useWallet();
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  async function handleFiles(files: FileList | null) {
+    if (!files) return;
+    const encoded = await Promise.all(Array.from(files).slice(0, 4).map(readFileAsDataUrl));
+    setProofImages(encoded);
+  }
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
     setLoading(true);
-    // Simulate API call
-    setTimeout(() => {
-      setLoading(false);
-      setSuccess(true);
-    }, 2000);
-  };
+    setError(undefined);
+    setTxHash(undefined);
+    setCreatedBatchId(undefined);
 
-  if (success) {
+    try {
+      let institutionWallet = address;
+      if (!institutionWallet) {
+        const connectedProvider = await connectWallet();
+        institutionWallet = connectedProvider ? await (await connectedProvider.getSigner()).getAddress() : null;
+      }
+      if (!institutionWallet) throw new Error('Connect MetaMask before creating a blockchain batch.');
+
+      const ipfs = await api.prepareBatchIPFS({
+        title,
+        institutionId: demoInstitutionId,
+        institutionWallet,
+        weight,
+        roomCode: roomCode || undefined,
+        pickupLocation: { lat: 19.076, lng: 72.8777, address: addressText },
+        proofImages,
+      });
+
+      const contract = await signerContract();
+      let batchId = Date.now();
+      let receiptHash = `local-${batchId}`;
+
+      if (contract) {
+        const tx = await contract.createBatch(weight, ipfs.ipfsHash);
+        const receipt = await tx.wait();
+        receiptHash = receipt.hash;
+        const parsed = receipt.logs
+          .map((log: any) => {
+            try {
+              return contract.interface.parseLog(log);
+            } catch {
+              return null;
+            }
+          })
+          .find((eventLog: any) => eventLog?.name === 'BatchCreated');
+        batchId = parsed ? Number(parsed.args.batchId) : batchId;
+      }
+
+      await api.createBatch({
+        batchId,
+        institutionId: demoInstitutionId,
+        institutionWallet,
+        title,
+        weight,
+        roomCode: roomCode || undefined,
+        pickupLocation: { lat: 19.076, lng: 72.8777, address: addressText },
+        proofImages,
+        ipfsHash: ipfs.ipfsHash,
+        txHash: receiptHash,
+      });
+
+      setCreatedBatchId(batchId);
+      setTxHash(receiptHash);
+    } catch (err: any) {
+      setError(err.message || 'Could not create batch');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (createdBatchId) {
     return (
-      <div className="max-w-2xl mx-auto neo-card bg-success text-center space-y-8 py-16">
-        <CheckCircle size={80} className="mx-auto" />
-        <h1 className="text-5xl font-black uppercase tracking-tighter">Batch Created!</h1>
-        <p className="text-xl font-bold">Transaction submitted to Polygon. IPFS hash generated.</p>
-        <button onClick={() => setSuccess(false)} className="neo-button bg-white">
-          Create Another
-        </button>
+      <div className="mx-auto max-w-2xl space-y-6">
+        <div className="neo-card bg-[var(--green)] p-8 text-center">
+          <CheckCircle2 className="mx-auto" size={72} strokeWidth={3} />
+          <h1 className="mt-5 text-4xl font-black uppercase">Batch Created</h1>
+          <p className="mt-2 text-lg font-bold">Batch #{createdBatchId} is now ready for recycler pickup.</p>
+          <div className="mt-6 flex flex-wrap justify-center gap-3">
+            <Link href={`/tracking/${createdBatchId}`} className="neo-button bg-white">
+              Track Batch
+            </Link>
+            <button className="neo-button bg-[var(--yellow)]" onClick={() => setCreatedBatchId(undefined)}>
+              Create Another
+            </button>
+          </div>
+        </div>
+        <TxStatus hash={txHash} label="Transaction confirmed" />
       </div>
     );
   }
 
   return (
-    <div className="max-w-3xl mx-auto space-y-12">
+    <div className="mx-auto max-w-3xl space-y-8">
       <header>
-        <h1 className="text-5xl font-black uppercase tracking-tighter">Create New Batch</h1>
-        <p className="text-xl font-bold opacity-70">Register your paper waste for recycling</p>
+        <p className="font-black uppercase text-[var(--coral)]">Institution Layer</p>
+        <h1 className="mt-2 text-4xl font-black uppercase md:text-6xl">Create Batch</h1>
+        <p className="mt-2 text-lg font-bold">Upload proofs to Pinata IPFS, then create the immutable batch on Polygon.</p>
       </header>
 
-      <form onSubmit={handleSubmit} className="neo-card bg-white space-y-8">
-        {/* Weight Input */}
-        <div className="space-y-2">
-          <label className="text-xl font-black uppercase flex items-center gap-2">
-            <Weight size={24}/> Total Weight (KG)
+      <form onSubmit={submit} className="neo-card space-y-6 bg-white p-6">
+        <label className="block space-y-2">
+          <span className="flex items-center gap-2 text-sm font-black uppercase"><Hash size={18} /> Batch Title</span>
+          <input className="neo-input" value={title} onChange={(event) => setTitle(event.target.value)} required />
+        </label>
+
+        <label className="block space-y-2">
+          <span className="flex items-center gap-2 text-sm font-black uppercase"><Weight size={18} /> Total Weight in KG</span>
+          <input className="neo-input" type="number" min={1} value={weight} onChange={(event) => setWeight(Number(event.target.value))} required />
+        </label>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <label className="block space-y-2">
+            <span className="flex items-center gap-2 text-sm font-black uppercase"><Info size={18} /> Room Code</span>
+            <input className="neo-input" value={roomCode} onChange={(event) => setRoomCode(event.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="6 digits" />
           </label>
-          <input 
-            type="number" 
-            placeholder="e.g. 50" 
-            className="neo-input text-2xl font-black h-16"
-            required
-          />
+          <label className="block space-y-2">
+            <span className="flex items-center gap-2 text-sm font-black uppercase">Pickup Location</span>
+            <input className="neo-input" value={addressText} onChange={(event) => setAddressText(event.target.value)} required />
+          </label>
         </div>
 
-        {/* Room Code */}
-        <div className="space-y-2">
-          <label className="text-xl font-black uppercase flex items-center gap-2">
-            <Info size={24}/> Room Code (Optional)
-          </label>
-          <input 
-            type="text" 
-            placeholder="6-digit code" 
-            className="neo-input font-bold"
-            maxLength={6}
-          />
-        </div>
-
-        {/* Proof Upload */}
-        <div className="space-y-2">
-          <label className="text-xl font-black uppercase">Upload Proof Images</label>
-          <div className="border-4 border-dashed border-black p-12 text-center space-y-4 hover:bg-gray-50 transition-colors cursor-pointer">
-            <Upload size={48} className="mx-auto text-secondary" />
-            <p className="font-bold uppercase tracking-tighter">Click or drag images of the paper batch</p>
-            <p className="text-xs opacity-50 font-bold">PNG, JPG up to 10MB</p>
+        <label className="block space-y-2">
+          <span className="flex items-center gap-2 text-sm font-black uppercase"><FileImage size={18} /> Proof Images</span>
+          <div className="rounded-lg border-[3px] border-dashed border-black bg-[var(--paper)] p-8 text-center">
+            <Upload className="mx-auto" size={42} strokeWidth={3} />
+            <p className="mt-3 font-black uppercase">{proofImages.length ? `${proofImages.length} file(s) ready` : 'Upload paper proof images'}</p>
+            <input className="mt-4 w-full font-bold" type="file" accept="image/*" multiple onChange={(event) => handleFiles(event.target.files)} />
           </div>
-        </div>
+        </label>
 
-        <button 
-          type="submit" 
-          disabled={loading}
-          className={`neo-button w-full text-2xl py-6 bg-primary ${loading ? 'opacity-50' : ''}`}
-        >
-          {loading ? 'Processing...' : 'GENERATE BATCH ID'}
+        {error ? <div className="rounded-lg border-[3px] border-black bg-[var(--coral)] p-3 font-black">{error}</div> : null}
+
+        <button className="neo-button w-full bg-[var(--yellow)] py-4 text-lg" disabled={loading}>
+          {loading ? <Loader2 className="animate-spin" size={20} /> : <Upload size={20} />}
+          {loading ? 'Creating on IPFS and Polygon' : 'Generate Batch ID'}
         </button>
       </form>
 
-      <div className="neo-card bg-accent/20 flex gap-4 items-start">
-         <Info className="text-accent shrink-0" />
-         <p className="text-sm font-bold">
-           By submitting, you confirm the weight is accurate. This data will be immutably stored on the blockchain and IPFS.
-         </p>
-      </div>
+      <TxStatus hash={txHash} loading={loading} label="Blockchain transaction in progress" />
     </div>
   );
 }

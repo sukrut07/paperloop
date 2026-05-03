@@ -1,30 +1,21 @@
-import type { Metadata } from "next";
-import { Inter } from "next/font/google";
-import "./globals.css";
-import Navbar from "@/components/Navbar";
-
-const inter = Inter({ subsets: ["latin"] });
+import type { Metadata } from 'next';
+import './globals.css';
+import Navbar from '@/components/Navbar';
 
 export const metadata: Metadata = {
-  title: "Paperloop | Blockchain Recycling",
-  description: "Educational paper recycling ecosystem on Polygon",
+  title: 'Paperloop | Blockchain Paper Recycling',
+  description: 'A three-layer blockchain ecosystem for institutions, recyclers, and NGOs.',
 };
 
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body className={inter.className}>
-        <div className="min-h-screen flex flex-col">
+      <body>
+        <div className="flex min-h-screen flex-col">
           <Navbar />
-          <main className="flex-grow p-6 md:p-12">
-            {children}
-          </main>
-          <footer className="border-t-4 border-black p-8 text-center font-bold uppercase">
-            © 2024 Paperloop - Powered by Polygon
+          <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8 md:px-6 md:py-10">{children}</main>
+          <footer className="border-t-[3px] border-black bg-[var(--paper)] px-6 py-5 text-center text-sm font-black uppercase">
+            Paperloop runs mutable workflows on MongoDB and immutable proofs on Polygon Amoy.
           </footer>
         </div>
       </body>

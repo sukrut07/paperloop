@@ -1,76 +1,77 @@
 'use client';
 
-import { motion } from 'framer-motion';
-import { Search, ExternalLink, Box, Activity } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
+import { Box, ExternalLink, Search, ShieldCheck } from 'lucide-react';
+import { StatusBadge } from '@/components/StatusBadge';
+import { api } from '@/lib/api';
+import type { Batch } from '@/lib/types';
 
 export default function Explorer() {
-  const transactions = [
-    { hash: '0x3a4b...2d1', batch: '#B003', type: 'Create', time: '2 mins ago', status: 'Success' },
-    { hash: '0x1f2e...9c8', batch: '#B001', type: 'Recycle', time: '1 hour ago', status: 'Success' },
-    { hash: '0x7d6a...5b4', batch: '#B002', type: 'Pickup', time: '3 hours ago', status: 'Success' },
-  ];
+  const [batches, setBatches] = useState<Batch[]>([]);
+  const [query, setQuery] = useState('');
+
+  useEffect(() => {
+    api.listBatches().then(setBatches);
+  }, []);
+
+  const filtered = useMemo(() => {
+    return batches.filter((batch) => `${batch.batchId} ${batch.title} ${batch.ipfsHash}`.toLowerCase().includes(query.toLowerCase()));
+  }, [batches, query]);
 
   return (
-    <div className="space-y-12">
-      <header className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
+    <div className="space-y-8">
+      <header className="flex flex-col justify-between gap-5 md:flex-row md:items-end">
         <div>
-          <h1 className="text-5xl font-black uppercase tracking-tighter">Chain Explorer</h1>
-          <p className="text-xl font-bold opacity-70">Verifiable Paperloop Ledger</p>
+          <p className="font-black uppercase text-[var(--coral)]">Blockchain Explorer</p>
+          <h1 className="mt-2 text-4xl font-black uppercase md:text-6xl">Paperloop Ledger</h1>
+          <p className="mt-2 max-w-2xl text-lg font-bold">Search batch IDs, IPFS hashes, and Polygon Amoy transaction records.</p>
         </div>
         <div className="relative w-full md:w-96">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 opacity-30" />
-          <input 
-            type="text" 
-            placeholder="Search Batch ID / TX Hash" 
-            className="neo-input pl-12 h-14"
-          />
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2" size={18} />
+          <input className="neo-input pl-11" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search ledger" />
         </div>
       </header>
 
-      {/* Network Stats */}
-      <div className="grid md:grid-cols-4 gap-4">
-        {[
-          { label: 'Total Batches', value: '1,245', icon: Box },
-          { label: 'Active Transactions', value: '42', icon: Activity },
-          { label: 'Avg Process Time', value: '4.2 Days', icon: Activity },
-          { label: 'Impact Score', value: '98.5', icon: Activity },
-        ].map((stat, i) => (
-          <div key={i} className="neo-card p-4 flex gap-4 items-center bg-white">
-             <div className="bg-primary p-2 neo-border">
-                <stat.icon size={20} />
-             </div>
-             <div>
-                <p className="text-xs font-black uppercase opacity-50">{stat.label}</p>
-                <p className="text-xl font-black">{stat.value}</p>
-             </div>
-          </div>
-        ))}
-      </div>
+      <section className="grid gap-4 md:grid-cols-3">
+        <div className="neo-card flex items-center gap-4 bg-[var(--yellow)] p-4">
+          <Box size={34} />
+          <div><p className="text-sm font-black uppercase">Batches</p><p className="text-3xl font-black">{batches.length}</p></div>
+        </div>
+        <div className="neo-card flex items-center gap-4 bg-[var(--cyan)] p-4">
+          <ShieldCheck size={34} />
+          <div><p className="text-sm font-black uppercase">Network</p><p className="text-3xl font-black">Amoy</p></div>
+        </div>
+        <div className="neo-card flex items-center gap-4 bg-[var(--green)] p-4">
+          <ExternalLink size={34} />
+          <div><p className="text-sm font-black uppercase">Explorer</p><p className="text-3xl font-black">Polygon</p></div>
+        </div>
+      </section>
 
-      {/* Transaction Table */}
-      <div className="neo-card bg-white overflow-x-auto">
-        <table className="w-full text-left">
-          <thead className="border-b-4 border-black">
-            <tr className="font-black uppercase text-sm">
-              <th className="p-4">TX Hash</th>
-              <th className="p-4">Type</th>
+      <div className="neo-card overflow-x-auto bg-white">
+        <table className="w-full min-w-[760px] text-left">
+          <thead className="border-b-[3px] border-black bg-[var(--paper)] text-sm font-black uppercase">
+            <tr>
               <th className="p-4">Batch</th>
               <th className="p-4">Status</th>
-              <th className="p-4 text-right">Time</th>
+              <th className="p-4">IPFS</th>
+              <th className="p-4">TX</th>
+              <th className="p-4 text-right">Track</th>
             </tr>
           </thead>
           <tbody className="font-bold">
-            {transactions.map((tx, i) => (
-              <tr key={i} className="border-b-2 border-black hover:bg-gray-50 transition-colors">
-                <td className="p-4 text-secondary font-mono text-xs">{tx.hash}</td>
-                <td className="p-4 uppercase">{tx.type}</td>
-                <td className="p-4">{tx.batch}</td>
-                <td className="p-4">
-                   <span className="bg-success px-2 py-1 text-xs uppercase">{tx.status}</span>
-                </td>
-                <td className="p-4 text-right opacity-50">{tx.time}</td>
-              </tr>
-            ))}
+            {filtered.map((batch) => {
+              const tx = Object.values(batch.txHashes || {}).find(Boolean);
+              return (
+                <tr key={batch.batchId} className="border-b-2 border-black">
+                  <td className="p-4"><strong>#{batch.batchId}</strong><br /><span className="text-sm opacity-70">{batch.title}</span></td>
+                  <td className="p-4"><StatusBadge status={batch.status} /></td>
+                  <td className="max-w-[220px] truncate p-4 font-mono text-xs">{batch.ipfsHash}</td>
+                  <td className="max-w-[180px] truncate p-4 font-mono text-xs">{tx || 'Pending'}</td>
+                  <td className="p-4 text-right"><Link href={`/tracking/${batch.batchId}`} className="neo-button bg-black text-xs text-white">Open</Link></td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

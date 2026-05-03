@@ -1,76 +1,63 @@
 'use client';
 
-import { motion } from 'framer-motion';
-import { User, Wallet, Settings, LogOut, ShieldCheck } from 'lucide-react';
+import { useState } from 'react';
+import { Save, ShieldCheck, User, WalletCards } from 'lucide-react';
+import { useWallet } from '@/hooks/useWallet';
 
 export default function Profile() {
+  const { address, connectWallet } = useWallet();
+  const [role, setRole] = useState('institution_admin');
+
   return (
-    <div className="max-w-4xl mx-auto space-y-12">
-      <header className="flex gap-8 items-center">
-        <div className="w-32 h-32 neo-border bg-primary flex items-center justify-center text-5xl">
-           🏫
-        </div>
-        <div>
-           <h1 className="text-5xl font-black uppercase tracking-tighter">Green High School</h1>
-           <p className="text-xl font-bold opacity-70">Educational Institution • Member since May 2024</p>
-        </div>
+    <div className="mx-auto max-w-5xl space-y-8">
+      <header>
+        <p className="font-black uppercase text-[var(--coral)]">Identity Layer</p>
+        <h1 className="mt-2 text-4xl font-black uppercase md:text-6xl">Profile</h1>
+        <p className="mt-2 text-lg font-bold">Firebase identity maps to a Paperloop role and a Polygon wallet.</p>
       </header>
 
-      <div className="grid md:grid-cols-3 gap-8">
-        <div className="md:col-span-2 space-y-8">
-           <section className="neo-card bg-white space-y-6">
-              <h2 className="text-2xl font-black uppercase flex items-center gap-2">
-                 <User size={24}/> Account Settings
-              </h2>
-              <div className="grid grid-cols-2 gap-6">
-                 <div className="space-y-1">
-                    <p className="text-xs font-black uppercase opacity-50">Email</p>
-                    <p className="font-bold">admin@greenhigh.edu</p>
-                 </div>
-                 <div className="space-y-1">
-                    <p className="text-xs font-black uppercase opacity-50">Contact Person</p>
-                    <p className="font-bold">Sarah Jenkins</p>
-                 </div>
-                 <div className="space-y-1 col-span-2">
-                    <p className="text-xs font-black uppercase opacity-50">Address</p>
-                    <p className="font-bold">123 Education Lane, Science City, SC 56789</p>
-                 </div>
-              </div>
-              <button className="neo-button bg-accent text-sm">Update Profile</button>
-           </section>
+      <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
+        <section className="neo-card space-y-5 bg-white p-6">
+          <h2 className="flex items-center gap-2 text-2xl font-black uppercase"><User size={24} /> Account</h2>
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="space-y-2">
+              <span className="text-sm font-black uppercase">Name</span>
+              <input className="neo-input" defaultValue="Paperloop Public School" />
+            </label>
+            <label className="space-y-2">
+              <span className="text-sm font-black uppercase">Email</span>
+              <input className="neo-input" defaultValue="admin@paperloop.edu" />
+            </label>
+            <label className="space-y-2">
+              <span className="text-sm font-black uppercase">Role</span>
+              <select className="neo-input" value={role} onChange={(event) => setRole(event.target.value)}>
+                <option value="teacher">Teacher</option>
+                <option value="institution_admin">Institution Admin</option>
+                <option value="recycler">Recycler</option>
+                <option value="ngo_admin">NGO Admin</option>
+              </select>
+            </label>
+            <label className="space-y-2">
+              <span className="text-sm font-black uppercase">Location</span>
+              <input className="neo-input" defaultValue="Mumbai, Maharashtra" />
+            </label>
+          </div>
+          <button className="neo-button bg-[var(--yellow)]"><Save size={18} /> Save Profile</button>
+        </section>
 
-           <section className="neo-card bg-black text-white space-y-6">
-              <h2 className="text-2xl font-black uppercase flex items-center gap-2">
-                 <Wallet size={24}/> Connected Wallet
-              </h2>
-              <div className="bg-white/10 p-4 neo-border border-white/20 font-mono text-sm break-all">
-                 0x71C7656EC7ab88b098defB751B7401B5f6d8976F
-              </div>
-              <div className="flex justify-between items-center">
-                 <span className="flex items-center gap-2 font-bold text-success">
-                    <ShieldCheck size={18}/> Verified on Polygon
-                 </span>
-                 <button className="text-sm font-black uppercase underline">Change Wallet</button>
-              </div>
-           </section>
-        </div>
-
-        <div className="space-y-8">
-           <div className="neo-card bg-secondary text-white space-y-4">
-              <h3 className="text-xl font-black uppercase">Impact Tokens</h3>
-              <p className="text-5xl font-black">450 <span className="text-lg">PLP</span></p>
-              <button className="neo-button bg-white text-black w-full text-sm">Redeem Rewards</button>
-           </div>
-
-           <div className="space-y-4 font-bold uppercase">
-              <button className="flex items-center gap-4 w-full p-4 hover:bg-gray-100 transition-colors neo-border border-2">
-                 <Settings size={20}/> Preferences
-              </button>
-              <button className="flex items-center gap-4 w-full p-4 hover:bg-red-50 text-red-600 transition-colors neo-border border-2 border-red-600">
-                 <LogOut size={20}/> Sign Out
-              </button>
-           </div>
-        </div>
+        <aside className="neo-card space-y-5 bg-black p-6 text-white">
+          <h2 className="flex items-center gap-2 text-2xl font-black uppercase"><WalletCards size={24} /> Wallet</h2>
+          <div className="break-all rounded-lg border-2 border-white/40 bg-white/10 p-4 font-mono text-sm">
+            {address || 'No wallet connected'}
+          </div>
+          <button className="neo-button w-full bg-white text-black" onClick={connectWallet}>
+            Connect MetaMask
+          </button>
+          <p className="flex items-center gap-2 text-sm font-black uppercase text-[var(--green)]">
+            <ShieldCheck size={18} />
+            Used for immutable status updates
+          </p>
+        </aside>
       </div>
     </div>
   );

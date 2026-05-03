@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: paperloop-api
+    env: node
+    plan: starter
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 5001
+      - key: MONGODB_URI
+        sync: false
+      - key: PINATA_API_KEY
+        sync: false
+      - key: PINATA_SECRET_API_KEY
+        sync: false
+      - key: POLYGON_AMOY_RPC_URL
+        sync: false
+      - key: PAPERLOOP_CONTRACT_ADDRESS
+        sync: false
+      - key: FIREBASE_SERVICE_ACCOUNT_JSON
+        sync: false

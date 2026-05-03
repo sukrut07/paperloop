@@ -1,76 +1,87 @@
 'use client';
 
-import { motion } from 'framer-motion';
-import { Plus, Users, ClipboardList, TrendingUp } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { motion } from 'framer-motion';
+import { BookOpenCheck, ClipboardList, Plus, TrendingUp, Users } from 'lucide-react';
+import { StatCard } from '@/components/StatCard';
+import { StatusBadge } from '@/components/StatusBadge';
+import { api } from '@/lib/api';
+import type { Batch } from '@/lib/types';
 
 export default function InstitutionDashboard() {
-  const stats = [
-    { label: 'Total Batches', value: '12', icon: ClipboardList, color: 'bg-primary' },
-    { label: 'Active Rooms', value: '3', icon: Users, color: 'bg-accent' },
-    { label: 'KG Recycled', value: '450', icon: TrendingUp, color: 'bg-success' },
-  ];
+  const [batches, setBatches] = useState<Batch[]>([]);
+
+  useEffect(() => {
+    api.listBatches().then(setBatches);
+  }, []);
+
+  const stats = useMemo(() => {
+    const totalWeight = batches.reduce((sum, batch) => sum + batch.weight, 0);
+    const notebooks = batches.reduce((sum, batch) => sum + (batch.notebooksEstimate || 0), 0);
+    return [
+      { label: 'Paper Batches', value: batches.length, icon: ClipboardList, color: 'bg-[var(--yellow)]' },
+      { label: 'Active Rooms', value: '3', icon: Users, color: 'bg-[var(--cyan)]' },
+      { label: 'KG Registered', value: totalWeight || 269, icon: TrendingUp, color: 'bg-[var(--green)]' },
+      { label: 'Books Estimate', value: notebooks || 1345, icon: BookOpenCheck, color: 'bg-white' },
+    ];
+  }, [batches]);
 
   return (
-    <div className="space-y-12">
-      <header className="flex justify-between items-end">
+    <div className="space-y-10">
+      <header className="flex flex-col justify-between gap-5 md:flex-row md:items-end">
         <div>
-          <h1 className="text-5xl font-black uppercase tracking-tighter">Institution Dashboard</h1>
-          <p className="text-xl font-bold opacity-70">Welcome back, Green High School</p>
+          <p className="font-black uppercase text-[var(--coral)]">Institution Layer</p>
+          <h1 className="mt-2 text-4xl font-black uppercase md:text-6xl">Dashboard</h1>
+          <p className="mt-2 max-w-2xl text-lg font-bold">
+            Create paper batches, manage teacher rooms, and keep every proof linked to IPFS and Polygon.
+          </p>
         </div>
-        <div className="flex gap-4">
-          <Link href="/room/create" className="neo-button bg-accent">
-            <Plus className="inline mr-2" /> Create Room
+        <div className="flex flex-wrap gap-3">
+          <Link href="/room/create" className="neo-button bg-[var(--cyan)]">
+            <Plus size={18} />
+            Create Room
           </Link>
-          <Link href="/batch/create" className="neo-button">
-            <Plus className="inline mr-2" /> New Batch
+          <Link href="/batch/create" className="neo-button bg-[var(--yellow)]">
+            <Plus size={18} />
+            New Batch
           </Link>
         </div>
       </header>
 
-      {/* Stats Grid */}
-      <div className="grid md:grid-cols-3 gap-8">
-        {stats.map((stat, i) => (
-          <motion.div
-            key={i}
-            whileHover={{ scale: 1.05 }}
-            className={`neo-card ${stat.color} flex items-center justify-between`}
-          >
-            <div>
-              <p className="font-black uppercase text-sm opacity-70">{stat.label}</p>
-              <p className="text-4xl font-black">{stat.value}</p>
-            </div>
-            <stat.icon size={40} />
-          </motion.div>
+      <section className="grid gap-5 md:grid-cols-4">
+        {stats.map((stat) => (
+          <StatCard key={stat.label} {...stat} />
         ))}
-      </div>
+      </section>
 
-      {/* Recent Activity */}
-      <section className="space-y-6">
-        <h2 className="text-3xl font-black uppercase tracking-tighter">Recent Batches</h2>
+      <section className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-2xl font-black uppercase">Recent Batches</h2>
+          <Link href="/tracking/101" className="text-sm font-black uppercase underline">
+            Open tracker
+          </Link>
+        </div>
         <div className="space-y-4">
-          {[
-            { id: '#B001', weight: '50kg', status: 'InTransit', date: '2024-05-01' },
-            { id: '#B002', weight: '120kg', status: 'Recycled', date: '2024-04-28' },
-            { id: '#B003', weight: '30kg', status: 'Created', date: '2024-05-02' },
-          ].map((batch, i) => (
-            <div key={i} className="neo-card flex justify-between items-center bg-white hover:bg-gray-50 cursor-pointer">
-              <div className="flex gap-8 items-center">
-                <span className="font-black text-2xl">{batch.id}</span>
-                <span className="neo-button bg-primary py-1 px-3 text-xs">{batch.weight}</span>
+          {batches.slice(0, 6).map((batch, index) => (
+            <motion.div
+              key={batch.batchId}
+              initial={{ y: 12, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ delay: index * 0.04 }}
+              className="neo-card flex flex-col justify-between gap-4 bg-white p-5 md:flex-row md:items-center"
+            >
+              <div>
+                <p className="text-2xl font-black">#{batch.batchId} {batch.title}</p>
+                <p className="mt-1 font-bold opacity-70">{batch.weight} kg paper · {batch.pagesEstimate || 0} pages estimated</p>
               </div>
-              <div className="flex gap-8 items-center">
-                <span className={`font-black uppercase px-2 py-1 ${
-                  batch.status === 'Recycled' ? 'bg-success' : 'bg-accent'
-                }`}>
-                  {batch.status}
-                </span>
-                <span className="font-bold opacity-50">{batch.date}</span>
-                <Link href={`/tracking/${batch.id}`} className="neo-button bg-black text-white text-xs">
+              <div className="flex flex-wrap items-center gap-3">
+                <StatusBadge status={batch.status} />
+                <Link href={`/tracking/${batch.batchId}`} className="neo-button bg-black text-xs text-white">
                   Track
                 </Link>
               </div>
-            </div>
+            </motion.div>
           ))}
         </div>
       </section>

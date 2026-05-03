@@ -2,46 +2,60 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { motion } from 'framer-motion';
+import { Menu, WalletCards } from 'lucide-react';
+import { useWallet } from '@/hooks/useWallet';
 
-const Navbar = () => {
+const navItems = [
+  { name: 'Institution', href: '/dashboard/institution' },
+  { name: 'Recycler', href: '/dashboard/recycler' },
+  { name: 'NGO', href: '/dashboard/ngo' },
+  { name: 'Analytics', href: '/analytics' },
+  { name: 'Explorer', href: '/explorer' },
+];
+
+export default function Navbar() {
   const pathname = usePathname();
-
-  const navItems = [
-    { name: 'Home', href: '/' },
-    { name: 'Institution', href: '/dashboard/institution' },
-    { name: 'Recycler', href: '/dashboard/recycler' },
-    { name: 'NGO', href: '/dashboard/ngo' },
-    { name: 'Explorer', href: '/explorer' },
-  ];
+  const { address, connectWallet, isAmoy, switchToAmoy } = useWallet();
 
   return (
-    <nav className="sticky top-0 z-50 bg-white border-b-4 border-black px-6 py-4 flex justify-between items-center">
-      <Link href="/" className="text-2xl font-black uppercase tracking-tighter">
-        Paper<span className="bg-primary px-1">loop</span>
-      </Link>
+    <nav className="sticky top-0 z-50 border-b-[3px] border-black bg-[var(--paper)]">
+      <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3 md:px-6">
+        <Link href="/" className="flex items-center gap-2 text-2xl font-black uppercase">
+          <span className="grid h-10 w-10 place-items-center rounded-lg border-[3px] border-black bg-[var(--green)] shadow-[4px_4px_0_#111]">
+            PL
+          </span>
+          Paperloop
+        </Link>
 
-      <div className="hidden md:flex gap-8 font-bold uppercase">
-        {navItems.map((item) => (
-          <Link
-            key={item.href}
-            href={item.href}
-            className={`hover:text-secondary transition-colors ${
-              pathname === item.href ? 'underline decoration-4 underline-offset-4' : ''
-            }`}
-          >
-            {item.name}
-          </Link>
-        ))}
-      </div>
+        <div className="hidden items-center gap-2 lg:flex">
+          {navItems.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={`rounded-md px-3 py-2 text-sm font-black uppercase ${
+                pathname === item.href ? 'bg-[var(--cyan)] neo-border border-[2px]' : 'hover:bg-black/5'
+              }`}
+            >
+              {item.name}
+            </Link>
+          ))}
+        </div>
 
-      <div className="flex gap-4">
-        <button className="neo-button bg-accent text-sm">
-          Connect Wallet
-        </button>
+        <div className="flex items-center gap-2">
+          {address && !isAmoy ? (
+            <button className="neo-button bg-[var(--coral)] text-xs" onClick={switchToAmoy}>
+              Polygon Amoy
+            </button>
+          ) : null}
+          <button className="neo-button bg-[var(--yellow)] text-xs" onClick={connectWallet}>
+            <WalletCards size={16} />
+            {address ? `${address.slice(0, 6)}...${address.slice(-4)}` : 'Connect'}
+          </button>
+          <button className="neo-button bg-white p-2 lg:hidden" aria-label="Open menu">
+            <Menu size={18} />
+          </button>
+        </div>
       </div>
     </nav>
   );
-};
-
-export default Navbar;
+}

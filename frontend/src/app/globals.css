@@ -1,67 +1,107 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
 :root {
-  --background: #f0f0f0;
-  --foreground: #000000;
-  --primary: #FFD100;
-  --secondary: #FF5C00;
-  --accent: #00E5FF;
-  --success: #00FF41;
-  --border-width: 4px;
+  --background: #f6f2e8;
+  --foreground: #111111;
+  --paper: #fffdf5;
+  --ink: #111111;
+  --yellow: #ffd84d;
+  --cyan: #65dff6;
+  --green: #8cf26d;
+  --coral: #ff7657;
+  --violet: #9c8cff;
+  --line: 3px;
+}
+
+* {
+  box-sizing: border-box;
+  letter-spacing: 0;
+}
+
+html {
+  scroll-behavior: smooth;
 }
 
 body {
   color: var(--foreground);
-  background: var(--background);
-  font-family: 'Inter', sans-serif;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background:
+    linear-gradient(rgba(17, 17, 17, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(17, 17, 17, 0.035) 1px, transparent 1px),
+    var(--background);
+  background-size: 28px 28px;
 }
 
-@layer components {
-  .neo-border {
-    border: var(--border-width) solid #000000;
-  }
+button,
+a,
+input,
+select,
+textarea {
+  letter-spacing: 0;
+}
 
-  .neo-shadow {
-    box-shadow: 8px 8px 0px 0px #000000;
-  }
+.neo-border {
+  border: var(--line) solid var(--ink);
+}
 
-  .neo-shadow-sm {
-    box-shadow: 4px 4px 0px 0px #000000;
-  }
+.neo-shadow {
+  box-shadow: 7px 7px 0 var(--ink);
+}
 
-  .neo-shadow-hover:hover {
-    box-shadow: 12px 12px 0px 0px #000000;
-    transform: translate(-4px, -4px);
-    transition: all 0.2s ease;
-  }
+.neo-shadow-sm {
+  box-shadow: 4px 4px 0 var(--ink);
+}
 
-  .neo-button {
-    @apply neo-border neo-shadow-sm px-6 py-2 font-bold uppercase transition-all;
-    background: var(--primary);
-  }
+.neo-card {
+  border: var(--line) solid var(--ink);
+  box-shadow: 7px 7px 0 var(--ink);
+  background: var(--paper);
+  border-radius: 8px;
+}
 
-  .neo-button:hover {
-    @apply neo-shadow;
-    transform: translate(-2px, -2px);
-  }
+.neo-button {
+  display: inline-flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: var(--line) solid var(--ink);
+  box-shadow: 4px 4px 0 var(--ink);
+  border-radius: 8px;
+  background: var(--yellow);
+  padding: 10px 16px;
+  font-weight: 900;
+  text-transform: uppercase;
+  transition: transform 160ms ease, box-shadow 160ms ease, background 160ms ease;
+}
 
-  .neo-button:active {
-    box-shadow: 0px 0px 0px 0px #000000;
-    transform: translate(4px, 4px);
-  }
+.neo-button:hover {
+  box-shadow: 6px 6px 0 var(--ink);
+  transform: translate(-2px, -2px);
+}
 
-  .neo-card {
-    @apply neo-border neo-shadow p-6 bg-white;
-  }
+.neo-button:active {
+  box-shadow: 0 0 0 var(--ink);
+  transform: translate(4px, 4px);
+}
 
-  .neo-input {
-    @apply neo-border px-4 py-2 w-full outline-none;
-  }
+.neo-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  transform: none;
+}
 
-  .neo-input:focus {
-    @apply neo-shadow-sm;
-    background: #fff;
-  }
+.neo-input {
+  min-height: 46px;
+  width: 100%;
+  border: var(--line) solid var(--ink);
+  border-radius: 8px;
+  background: white;
+  padding: 10px 14px;
+  font-weight: 800;
+  outline: none;
+}
+
+.neo-input:focus {
+  box-shadow: 4px 4px 0 var(--ink);
 }
