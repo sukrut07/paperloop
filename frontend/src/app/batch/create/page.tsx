@@ -22,7 +22,7 @@ export default function CreateBatch() {
   const [title, setTitle] = useState('Unused assignment sheets');
   const [weight, setWeight] = useState(50);
   const [roomCode, setRoomCode] = useState('');
-  const [addressText, setAddressText] = useState('Mumbai, Maharashtra');
+  const [addressText, setAddressText] = useState('Pune, Maharashtra');
   const [proofImages, setProofImages] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [txHash, setTxHash] = useState<string>();
@@ -57,7 +57,7 @@ export default function CreateBatch() {
         institutionWallet,
         weight,
         roomCode: roomCode || undefined,
-        pickupLocation: { lat: 19.076, lng: 72.8777, address: addressText },
+        pickupLocation: { lat: 18.5204, lng: 73.8567, address: addressText },
         proofImages,
       });
 
@@ -88,7 +88,7 @@ export default function CreateBatch() {
         title,
         weight,
         roomCode: roomCode || undefined,
-        pickupLocation: { lat: 19.076, lng: 72.8777, address: addressText },
+        pickupLocation: { lat: 18.5204, lng: 73.8567, address: addressText },
         proofImages,
         ipfsHash: ipfs.ipfsHash,
         txHash: receiptHash,

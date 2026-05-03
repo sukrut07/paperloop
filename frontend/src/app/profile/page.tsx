@@ -1,19 +1,19 @@
 'use client';
 
-import { useState } from 'react';
 import { Save, ShieldCheck, User, WalletCards } from 'lucide-react';
 import { useWallet } from '@/hooks/useWallet';
+import { useRole } from '@/hooks/useRole';
 
 export default function Profile() {
   const { address, connectWallet } = useWallet();
-  const [role, setRole] = useState('institution_admin');
+  const { role, setRole } = useRole();
 
   return (
     <div className="mx-auto max-w-5xl space-y-8">
       <header>
         <p className="font-black uppercase text-[var(--coral)]">Identity Layer</p>
         <h1 className="mt-2 text-4xl font-black uppercase md:text-6xl">Profile</h1>
-        <p className="mt-2 text-lg font-bold">Firebase identity maps to a Paperloop role and a Polygon wallet.</p>
+        <p className="mt-2 text-lg font-bold">Choose your role once. Paperloop then shows only the dashboard and workflow meant for that actor.</p>
       </header>
 
       <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
@@ -30,11 +30,10 @@ export default function Profile() {
             </label>
             <label className="space-y-2">
               <span className="text-sm font-black uppercase">Role</span>
-              <select className="neo-input" value={role} onChange={(event) => setRole(event.target.value)}>
+              <select className="neo-input" value={role} onChange={(event) => setRole(event.target.value as any)}>
                 <option value="teacher">Teacher</option>
-                <option value="institution_admin">Institution Admin</option>
                 <option value="recycler">Recycler</option>
-                <option value="ngo_admin">NGO Admin</option>
+                <option value="ngo">NGO Admin</option>
               </select>
             </label>
             <label className="space-y-2">

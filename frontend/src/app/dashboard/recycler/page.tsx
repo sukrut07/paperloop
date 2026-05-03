@@ -5,6 +5,8 @@ import { CheckCircle2, Factory, Package, Recycle, Truck } from 'lucide-react';
 import { MapPanel } from '@/components/MapPanel';
 import { StatusBadge } from '@/components/StatusBadge';
 import { TxStatus } from '@/components/TxStatus';
+import { RoleGate } from '@/components/RoleGate';
+import { ProgressUpdateForm } from '@/components/ProgressUpdateForm';
 import { useWallet } from '@/hooks/useWallet';
 import { api } from '@/lib/api';
 import type { Batch } from '@/lib/types';
@@ -16,9 +18,13 @@ export default function RecyclerDashboard() {
   const [txHash, setTxHash] = useState<string | undefined>();
   const { address, signerContract, connectWallet } = useWallet();
 
-  useEffect(() => {
+  const loadBatches = () => {
     api.availableBatches().then(setAvailable);
     api.listBatches().then((batches) => setActive(batches.filter((batch) => ['Accepted', 'PickedUp', 'InTransit', 'Received'].includes(batch.status))));
+  };
+
+  useEffect(() => {
+    loadBatches();
   }, []);
 
   async function transition(batch: Batch, action: 'accept' | 'pickup' | 'receive' | 'recycle') {
@@ -55,6 +61,7 @@ export default function RecyclerDashboard() {
   }
 
   return (
+    <RoleGate allowed="recycler">
     <div className="space-y-10">
       <header className="flex flex-col justify-between gap-5 md:flex-row md:items-end">
         <div>
@@ -71,7 +78,7 @@ export default function RecyclerDashboard() {
       <TxStatus hash={txHash} loading={Boolean(pending)} label="Waiting for blockchain confirmation" />
 
       <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
-        <MapPanel address="Mumbai paper recycling plant" />
+        <MapPanel address="Pune paper recycling center" />
         <section className="space-y-4">
           <h2 className="text-2xl font-black uppercase">Available Pickups</h2>
           {available.map((batch) => (
@@ -84,14 +91,14 @@ export default function RecyclerDashboard() {
                 </div>
                 <span className="rounded-md border-2 border-black bg-[var(--yellow)] px-2 py-1 text-sm font-black">{batch.weight} kg</span>
               </div>
-              <button
-                className="neo-button mt-4 w-full bg-[var(--green)]"
-                disabled={pending === `accept-${batch.batchId}`}
-                onClick={() => transition(batch, 'accept')}
-              >
-                <CheckCircle2 size={18} />
-                Accept Pickup
-              </button>
+              <ProgressUpdateForm
+                batch={batch}
+                role="recycler"
+                action="accept"
+                label="Accept pickup with proof"
+                message="Recycler accepted pickup and uploaded pickup-slot proof"
+                onUpdated={loadBatches}
+              />
             </div>
           ))}
         </section>
@@ -109,24 +116,35 @@ export default function RecyclerDashboard() {
                 </div>
                 <StatusBadge status={batch.status} />
               </div>
-              <div className="mt-5 flex flex-wrap gap-2">
-                <button className="neo-button bg-[var(--cyan)] text-xs" onClick={() => transition(batch, 'pickup')}>
-                  <Package size={16} />
-                  Picked Up
-                </button>
-                <button className="neo-button bg-white text-xs" onClick={() => transition(batch, 'receive')}>
-                  <Factory size={16} />
-                  Received
-                </button>
-                <button className="neo-button bg-[var(--green)] text-xs" onClick={() => transition(batch, 'recycle')}>
-                  <Recycle size={16} />
-                  Recycled
-                </button>
-              </div>
+              <ProgressUpdateForm
+                batch={batch}
+                role="recycler"
+                action={batch.status === 'Accepted' ? 'pickup' : batch.status === 'PickedUp' ? 'transit' : batch.status === 'InTransit' ? 'receive' : 'recycle'}
+                label={
+                  batch.status === 'Accepted'
+                    ? 'Confirm picked up with photo'
+                    : batch.status === 'PickedUp'
+                      ? 'Mark in transit with proof'
+                      : batch.status === 'InTransit'
+                        ? 'Confirm plant received'
+                        : 'Mark recycled with proof'
+                }
+                message={
+                  batch.status === 'Accepted'
+                    ? 'Recycler collected the paper batch from the institution'
+                    : batch.status === 'PickedUp'
+                      ? 'Recycler moved the batch to in-transit status'
+                      : batch.status === 'InTransit'
+                        ? 'Recycling plant received the batch'
+                        : 'Recycling plant converted paper into notebook stock'
+                }
+                onUpdated={loadBatches}
+              />
             </div>
           ))}
         </div>
       </section>
     </div>
+    </RoleGate>
   );
 }

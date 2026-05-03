@@ -12,7 +12,7 @@ export const demoBatches: Batch[] = [
     status: 'InTransit',
     ipfsHash: 'local-demo-ipfs-hash',
     roomCode: '482913',
-    pickupLocation: { lat: 19.076, lng: 72.8777, address: 'Mumbai, Maharashtra' },
+    pickupLocation: { lat: 18.5204, lng: 73.8567, address: 'Shivajinagar, Pune' },
     txHashes: { created: '0xdemo101' },
     createdAt: new Date().toISOString(),
   },
@@ -25,7 +25,7 @@ export const demoBatches: Batch[] = [
     notebooksEstimate: 600,
     status: 'Created',
     ipfsHash: 'local-created-ipfs-hash',
-    pickupLocation: { lat: 19.11, lng: 72.9, address: 'Andheri East, Mumbai' },
+    pickupLocation: { lat: 18.5679, lng: 73.9143, address: 'Viman Nagar, Pune' },
     createdAt: new Date().toISOString(),
   },
   {
@@ -38,6 +38,7 @@ export const demoBatches: Batch[] = [
     notebooksEstimate: 320,
     status: 'Recycled',
     ipfsHash: 'local-recycled-ipfs-hash',
+    pickupLocation: { lat: 18.5089, lng: 73.926, address: 'Hadapsar, Pune' },
     createdAt: new Date().toISOString(),
   },
 ];

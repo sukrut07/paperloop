@@ -5,6 +5,8 @@ import { BookOpenCheck, CheckCircle2, Gift, Users } from 'lucide-react';
 import { StatCard } from '@/components/StatCard';
 import { StatusBadge } from '@/components/StatusBadge';
 import { TxStatus } from '@/components/TxStatus';
+import { RoleGate } from '@/components/RoleGate';
+import { ProgressUpdateForm } from '@/components/ProgressUpdateForm';
 import { api } from '@/lib/api';
 import type { Batch } from '@/lib/types';
 import { useWallet } from '@/hooks/useWallet';
@@ -15,8 +17,12 @@ export default function NGODashboard() {
   const [pending, setPending] = useState<string | null>(null);
   const { address, signerContract, connectWallet } = useWallet();
 
-  useEffect(() => {
+  const loadBatches = () => {
     api.listBatches().then((batches) => setStock(batches.filter((batch) => batch.status === 'Recycled' || batch.status === 'SentToNGO')));
+  };
+
+  useEffect(() => {
+    loadBatches();
   }, []);
 
   async function acceptDonation(batch: Batch, finalDelivery = false) {
@@ -47,6 +53,7 @@ export default function NGODashboard() {
   }
 
   return (
+    <RoleGate allowed="ngo">
     <div className="space-y-10">
       <header className="flex flex-col justify-between gap-5 md:flex-row md:items-end">
         <div>
@@ -78,20 +85,22 @@ export default function NGODashboard() {
             </div>
             <div className="flex flex-wrap items-center gap-3">
               <StatusBadge status={batch.status} />
-              {batch.status === 'Recycled' ? (
-                <button className="neo-button bg-[var(--cyan)] text-xs" onClick={() => acceptDonation(batch)}>
-                  Accept Stock
-                </button>
-              ) : (
-                <button className="neo-button bg-[var(--green)] text-xs" onClick={() => acceptDonation(batch, true)}>
-                  <CheckCircle2 size={16} />
-                  Confirm Distribution
-                </button>
-              )}
+              <div className="w-full md:w-[420px]">
+                <ProgressUpdateForm
+                  batch={batch}
+                  role="ngo_admin"
+                  action="distribute"
+                  label={batch.status === 'Recycled' ? 'Accept books with photo proof' : 'Confirm student delivery'}
+                  message={batch.status === 'Recycled' ? 'NGO accepted notebook stock from recycler' : 'NGO distributed books to students and uploaded delivery proof'}
+                  finalDelivery={batch.status === 'SentToNGO'}
+                  onUpdated={loadBatches}
+                />
+              </div>
             </div>
           </div>
         ))}
       </section>
     </div>
+    </RoleGate>
   );
 }

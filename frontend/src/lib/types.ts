@@ -42,6 +42,7 @@ export interface TrackingLog {
   actorRole: string;
   actorWallet?: string;
   txHash?: string;
+  proofHash?: string;
   message: string;
   createdAt: string;
 }

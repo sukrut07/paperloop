@@ -29,6 +29,7 @@ const txKeyByStatus: Partial<Record<TrackingStatus, keyof IBatch['txHashes']>> =
   Created: 'created',
   Accepted: 'accepted',
   PickedUp: 'pickedUp',
+  InTransit: 'pickedUp',
   Received: 'received',
   Recycled: 'recycled',
   SentToNGO: 'sentToNgo',
@@ -45,6 +46,7 @@ async function addTrackingLog(params: {
   actorRole: UserRole | 'system';
   actorWallet?: string;
   txHash?: string;
+  proofHash?: string;
   message?: string;
   location?: { lat: number; lng: number; address?: string };
 }) {
@@ -56,7 +58,7 @@ async function addTrackingLog(params: {
 
 async function updateBatchTransition(req: Request, res: Response, status: TrackingStatus) {
   try {
-    const { batchId, actorId, actorWallet, txHash, message, location } = req.body;
+    const { batchId, actorId, actorWallet, txHash, proofHash, message, location, actorRole } = req.body;
     const batch = await Batch.findOne({ batchId: Number(batchId) });
     if (!batch) return res.status(404).json({ error: 'Batch not found' });
 
@@ -81,9 +83,10 @@ async function updateBatchTransition(req: Request, res: Response, status: Tracki
     await addTrackingLog({
       batchId: batch.batchId,
       status,
-      actorRole: status === 'SentToNGO' || status === 'Delivered' ? 'ngo_admin' : 'recycler',
+      actorRole: actorRole || (status === 'SentToNGO' || status === 'Delivered' ? 'ngo_admin' : 'recycler'),
       actorWallet,
       txHash,
+      proofHash,
       message,
       location,
     });
@@ -261,11 +264,34 @@ export const getRecycledBatches = async (_req: Request, res: Response) => {
 
 export const acceptBatch = (req: Request, res: Response) => updateBatchTransition(req, res, 'Accepted');
 export const pickupBatch = (req: Request, res: Response) => updateBatchTransition(req, res, 'PickedUp');
+export const transitBatch = (req: Request, res: Response) => updateBatchTransition(req, res, 'InTransit');
 export const receiveBatch = (req: Request, res: Response) => updateBatchTransition(req, res, 'Received');
 export const recycleBatch = (req: Request, res: Response) => updateBatchTransition(req, res, 'Recycled');
 export const distributeBatch = (req: Request, res: Response) => {
   const targetStatus: TrackingStatus = req.body.finalDelivery ? 'Delivered' : 'SentToNGO';
   return updateBatchTransition(req, res, targetStatus);
+};
+
+export const addProofUpdate = async (req: Request, res: Response) => {
+  try {
+    const { batchId, actorRole = 'teacher', actorWallet, proofHash, message, location } = req.body;
+    const batch = await Batch.findOne({ batchId: Number(batchId) });
+    if (!batch) return res.status(404).json({ error: 'Batch not found' });
+
+    await addTrackingLog({
+      batchId: batch.batchId,
+      status: batch.status,
+      actorRole,
+      actorWallet,
+      proofHash,
+      message: message || 'Progress proof uploaded',
+      location,
+    });
+
+    return res.json(batch);
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
 };
 
 export const getTracking = async (req: Request, res: Response) => {

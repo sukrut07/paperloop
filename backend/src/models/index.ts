@@ -153,6 +153,7 @@ export interface ITrackingLog extends Document {
   actorRole: UserRole | 'system';
   actorWallet?: string;
   txHash?: string;
+  proofHash?: string;
   message: string;
   location?: { lat: number; lng: number; address?: string };
   createdAt: Date;
@@ -169,6 +170,7 @@ const TrackingLogSchema = new Schema<ITrackingLog>(
     },
     actorWallet: { type: String, lowercase: true },
     txHash: { type: String },
+    proofHash: { type: String },
     message: { type: String, required: true },
     location: LocationSchema,
   },

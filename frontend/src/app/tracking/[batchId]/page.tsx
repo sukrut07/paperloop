@@ -100,8 +100,12 @@ export default function TrackingPage() {
                   </div>
                   <p className="mt-1 font-bold">{log.message}</p>
                   {log.txHash ? (
-                    <a className="mt-2 inline-flex items-center gap-1 text-xs font-black uppercase underline" href={`https://amoy.polygonscan.com/tx/${log.txHash}`} target="_blank" rel="noreferrer">
-                      View transaction <ExternalLink size={12} />
+                    <a className="mt-2 inline-flex items-center gap-1 text-xs font-black uppercase underline" href={log.txHash.startsWith('local') ? `https://gateway.pinata.cloud/ipfs/${log.txHash}` : `https://amoy.polygonscan.com/tx/${log.txHash}`} target="_blank" rel="noreferrer">
+                      {log.txHash.startsWith('local') ? 'View proof hash' : 'View transaction'} <ExternalLink size={12} />
+                    </a>
+                  ) : log.proofHash ? (
+                    <a className="mt-2 inline-flex items-center gap-1 text-xs font-black uppercase underline" href={`https://gateway.pinata.cloud/ipfs/${log.proofHash}`} target="_blank" rel="noreferrer">
+                      View proof <ExternalLink size={12} />
                     </a>
                   ) : null}
                 </div>

@@ -6,14 +6,20 @@ import { motion } from 'framer-motion';
 import { BookOpenCheck, ClipboardList, Plus, TrendingUp, Users } from 'lucide-react';
 import { StatCard } from '@/components/StatCard';
 import { StatusBadge } from '@/components/StatusBadge';
+import { RoleGate } from '@/components/RoleGate';
+import { ProgressUpdateForm } from '@/components/ProgressUpdateForm';
 import { api } from '@/lib/api';
 import type { Batch } from '@/lib/types';
 
 export default function InstitutionDashboard() {
   const [batches, setBatches] = useState<Batch[]>([]);
 
-  useEffect(() => {
+  const loadBatches = () => {
     api.listBatches().then(setBatches);
+  };
+
+  useEffect(() => {
+    loadBatches();
   }, []);
 
   const stats = useMemo(() => {
@@ -28,13 +34,14 @@ export default function InstitutionDashboard() {
   }, [batches]);
 
   return (
+    <RoleGate allowed="teacher">
     <div className="space-y-10">
       <header className="flex flex-col justify-between gap-5 md:flex-row md:items-end">
         <div>
-          <p className="font-black uppercase text-[var(--coral)]">Institution Layer</p>
-          <h1 className="mt-2 text-4xl font-black uppercase md:text-6xl">Dashboard</h1>
+          <p className="font-black uppercase text-[var(--coral)]">Teacher and Institution Layer</p>
+          <h1 className="mt-2 text-4xl font-black uppercase md:text-6xl">Teacher Dashboard</h1>
           <p className="mt-2 max-w-2xl text-lg font-bold">
-            Create paper batches, manage teacher rooms, and keep every proof linked to IPFS and Polygon.
+            Create rooms, share 6-digit codes with teachers, register paper batches, and upload handoff proof for tracking.
           </p>
         </div>
         <div className="flex flex-wrap gap-3">
@@ -81,10 +88,21 @@ export default function InstitutionDashboard() {
                   Track
                 </Link>
               </div>
+              <div className="md:col-span-2 md:w-full">
+                <ProgressUpdateForm
+                  batch={batch}
+                  role="teacher"
+                  action="proof"
+                  label="Upload teacher handoff proof"
+                  message="Teacher uploaded paper handoff proof for this batch"
+                  onUpdated={loadBatches}
+                />
+              </div>
             </motion.div>
           ))}
         </div>
       </section>
     </div>
+    </RoleGate>
   );
 }

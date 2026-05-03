@@ -1,6 +1,7 @@
 'use client';
 
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { DoorOpen, LogIn } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { Room } from '@/lib/types';
@@ -10,6 +11,11 @@ export default function JoinRoomPage() {
   const [userUid, setUserUid] = useState('demo-teacher');
   const [room, setRoom] = useState<Room>();
   const [error, setError] = useState<string>();
+
+  useEffect(() => {
+    const sharedCode = new URLSearchParams(window.location.search).get('code');
+    if (sharedCode) setCode(sharedCode.replace(/\D/g, '').slice(0, 6));
+  }, []);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -26,6 +32,7 @@ export default function JoinRoomPage() {
       <header>
         <p className="font-black uppercase text-[var(--coral)]">Room System</p>
         <h1 className="mt-2 text-4xl font-black uppercase md:text-6xl">Join Room</h1>
+        <p className="mt-2 text-lg font-bold">Enter the 6-digit teacher room code to join that paper drive and track its batches.</p>
       </header>
 
       <form onSubmit={submit} className="neo-card space-y-5 bg-white p-6">
@@ -44,7 +51,12 @@ export default function JoinRoomPage() {
       </form>
 
       {error ? <div className="neo-card bg-[var(--coral)] p-4 font-black">{error}</div> : null}
-      {room ? <div className="neo-card bg-[var(--cyan)] p-5 text-xl font-black">Joined {room.name} with {room.members.length} member(s)</div> : null}
+      {room ? (
+        <div className="neo-card space-y-4 bg-[var(--cyan)] p-5">
+          <p className="text-xl font-black">Joined {room.name} with {room.members.length} member(s)</p>
+          <Link href="/dashboard/institution" className="neo-button bg-white">Open Teacher Dashboard</Link>
+        </div>
+      ) : null}
     </div>
   );
 }

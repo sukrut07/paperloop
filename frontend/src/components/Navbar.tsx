@@ -4,18 +4,24 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Menu, WalletCards } from 'lucide-react';
 import { useWallet } from '@/hooks/useWallet';
+import { useRole } from '@/hooks/useRole';
 
-const navItems = [
-  { name: 'Institution', href: '/dashboard/institution' },
-  { name: 'Recycler', href: '/dashboard/recycler' },
-  { name: 'NGO', href: '/dashboard/ngo' },
-  { name: 'Analytics', href: '/analytics' },
-  { name: 'Explorer', href: '/explorer' },
-];
+const dashboardByRole = {
+  teacher: '/dashboard/institution',
+  recycler: '/dashboard/recycler',
+  ngo: '/dashboard/ngo',
+};
 
 export default function Navbar() {
   const pathname = usePathname();
   const { address, connectWallet, isAmoy, switchToAmoy } = useWallet();
+  const { role, setRole } = useRole();
+  const navItems = [
+    { name: 'My Dashboard', href: dashboardByRole[role] },
+    ...(role === 'teacher' ? [{ name: 'Create Room', href: '/room/create' }, { name: 'Join Room', href: '/room/join' }] : []),
+    { name: 'Track', href: '/tracking/101' },
+    { name: 'Profile', href: '/profile' },
+  ];
 
   return (
     <nav className="sticky top-0 z-50 border-b-[3px] border-black bg-[var(--paper)]">
@@ -28,6 +34,16 @@ export default function Navbar() {
         </Link>
 
         <div className="hidden items-center gap-2 lg:flex">
+          <select
+            className="rounded-md border-[3px] border-black bg-white px-3 py-2 text-sm font-black uppercase"
+            value={role}
+            onChange={(event) => setRole(event.target.value as any)}
+            aria-label="Select Paperloop role"
+          >
+            <option value="teacher">Teacher</option>
+            <option value="recycler">Recycler</option>
+            <option value="ngo">NGO</option>
+          </select>
           {navItems.map((item) => (
             <Link
               key={item.href}
