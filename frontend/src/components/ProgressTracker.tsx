@@ -1,26 +1,28 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { BookOpenCheck, Boxes, Check, ClipboardCheck, Factory, Handshake, PackageCheck, Truck } from 'lucide-react';
+import { BookOpenCheck, Boxes, Check, ClipboardCheck, Factory, Handshake, PackageCheck, PenSquare, Truck, type LucideIcon } from 'lucide-react';
+import { normalizeTrackerStatus } from '@/lib/shipmentFlow';
 import type { TrackingStatus } from '@/lib/types';
 
 interface ProgressTrackerProps {
   currentStatus: TrackingStatus;
 }
 
-export const statusSteps: Array<{ id: TrackingStatus; label: string; icon: any }> = [
+export const statusSteps: Array<{ id: TrackingStatus; label: string; icon: LucideIcon }> = [
   { id: 'Created', label: 'Created', icon: Boxes },
   { id: 'Accepted', label: 'Accepted', icon: Handshake },
   { id: 'PickedUp', label: 'Picked Up', icon: ClipboardCheck },
   { id: 'InTransit', label: 'In Transit', icon: Truck },
-  { id: 'Received', label: 'Received', icon: PackageCheck },
+  { id: 'ReceivedAtPlant', label: 'Received at Plant', icon: PackageCheck },
   { id: 'Recycled', label: 'Recycled', icon: Factory },
+  { id: 'BooksProduced', label: 'Books Produced', icon: PenSquare },
   { id: 'SentToNGO', label: 'Sent to NGO', icon: BookOpenCheck },
   { id: 'Delivered', label: 'Delivered', icon: Check },
 ];
 
 export default function ProgressTracker({ currentStatus }: ProgressTrackerProps) {
-  const currentIndex = Math.max(0, statusSteps.findIndex((step) => step.id === currentStatus));
+  const currentIndex = Math.max(0, statusSteps.findIndex((step) => step.id === normalizeTrackerStatus(currentStatus)));
   const progress = (currentIndex / (statusSteps.length - 1)) * 100;
 
   return (
@@ -33,7 +35,7 @@ export default function ProgressTracker({ currentStatus }: ProgressTrackerProps)
           animate={{ width: `calc((100% - 64px) * ${progress / 100})` }}
         />
 
-        <div className="relative z-10 grid grid-cols-8 gap-3">
+        <div className="relative z-10 grid grid-cols-9 gap-3">
           {statusSteps.map((step, index) => {
             const Icon = step.icon;
             const isDone = index <= currentIndex;

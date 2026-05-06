@@ -10,29 +10,33 @@ import {
   getRecycledBatches,
   listBatches,
   pickupBatch,
-  prepareBatchIPFS,
   receiveBatch,
   recycleBatch,
   seedDemoData,
   transitBatch,
+  uploadProofAsset,
 } from '../controllers/batchController';
+import { verifyToken } from '../middleware/authMiddleware';
+import { authorizeRoles } from '../middleware/roleMiddleware';
 
 const router = Router();
 
-router.get('/', listBatches);
-router.get('/available', getAvailableBatches);
-router.get('/recycled', getRecycledBatches);
-router.get('/analytics/summary', getAnalytics);
-router.post('/ipfs', prepareBatchIPFS);
-router.post('/create', createBatch);
-router.post('/proof', addProofUpdate);
-router.post('/accept', acceptBatch);
-router.post('/pickup', pickupBatch);
-router.post('/transit', transitBatch);
-router.post('/receive', receiveBatch);
-router.post('/recycle', recycleBatch);
-router.post('/distribute', distributeBatch);
-router.post('/seed-demo', seedDemoData);
-router.get('/:id', getBatch);
+router.use(verifyToken);
+
+router.get('/', authorizeRoles('institution', 'recycler', 'ngo', 'admin'), listBatches);
+router.get('/available', authorizeRoles('recycler', 'admin'), getAvailableBatches);
+router.get('/recycled', authorizeRoles('ngo', 'admin'), getRecycledBatches);
+router.get('/analytics/summary', authorizeRoles('admin'), getAnalytics);
+router.post('/proof-upload', authorizeRoles('institution', 'recycler', 'ngo', 'admin'), uploadProofAsset);
+router.post('/create', authorizeRoles('institution'), createBatch);
+router.post('/proof', authorizeRoles('institution'), addProofUpdate);
+router.post('/accept', authorizeRoles('recycler'), acceptBatch);
+router.post('/pickup', authorizeRoles('recycler'), pickupBatch);
+router.post('/transit', authorizeRoles('recycler'), transitBatch);
+router.post('/receive', authorizeRoles('recycler'), receiveBatch);
+router.post('/recycle', authorizeRoles('recycler'), recycleBatch);
+router.post('/distribute', authorizeRoles('ngo'), distributeBatch);
+router.post('/seed-demo', authorizeRoles('admin'), seedDemoData);
+router.get('/:id', authorizeRoles('institution', 'recycler', 'ngo', 'admin'), getBatch);
 
 export default router;

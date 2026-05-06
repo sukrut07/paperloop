@@ -1,6 +1,14 @@
 import { MapPinned, Navigation } from 'lucide-react';
 
-export function MapPanel({ address = 'Mumbai, Maharashtra' }: { address?: string }) {
+export function MapPanel({
+  address = 'Mumbai, Maharashtra',
+  title = 'Nearby pickups',
+  heightClassName = 'h-[420px]',
+}: {
+  address?: string;
+  title?: string;
+  heightClassName?: string;
+}) {
   const query = encodeURIComponent(address);
   const src = `https://www.google.com/maps?q=${query}&output=embed`;
 
@@ -9,7 +17,7 @@ export function MapPanel({ address = 'Mumbai, Maharashtra' }: { address?: string
       <div className="flex items-center justify-between border-b-[3px] border-black bg-[var(--cyan)] p-4">
         <div className="flex items-center gap-2 font-black uppercase">
           <MapPinned size={22} />
-          Nearby pickups
+          {title}
         </div>
         <a
           className="neo-button bg-white text-xs"
@@ -21,7 +29,7 @@ export function MapPanel({ address = 'Mumbai, Maharashtra' }: { address?: string
           Open Map
         </a>
       </div>
-      <iframe title="Paperloop pickup map" src={src} className="h-[420px] w-full border-0" loading="lazy" />
+      <iframe title="Paperloop pickup map" src={src} className={`${heightClassName} w-full border-0`} loading="lazy" />
     </div>
   );
 }

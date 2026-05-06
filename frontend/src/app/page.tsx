@@ -2,12 +2,12 @@
 
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { ArrowRight, BookOpenCheck, Factory, Landmark, Recycle, ShieldCheck, Truck } from 'lucide-react';
+import { ArrowRight, BookOpenCheck, Factory, Landmark, Recycle, Truck, Users } from 'lucide-react';
 
 const layers = [
   {
     title: 'Institution Layer',
-    text: 'Teachers and admins create rooms, register paper batches, upload proofs to IPFS, and track every handoff.',
+    text: 'Teachers and admins create rooms, register paper batches, upload proofs, and track every handoff.',
     icon: Landmark,
     color: 'bg-[var(--yellow)]',
   },
@@ -31,23 +31,22 @@ export default function Home() {
       <section className="grid min-h-[calc(100vh-190px)] items-center gap-8 lg:grid-cols-[1.05fr_0.95fr]">
         <motion.div initial={{ y: 18, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="space-y-7">
           <div className="inline-flex items-center gap-2 rounded-lg border-[3px] border-black bg-white px-3 py-2 font-black uppercase shadow-[4px_4px_0_#111]">
-            <ShieldCheck size={18} />
-            Polygon Amoy verified
+            <Users size={18} />
+            Real-time collaborative recycling workflow
           </div>
           <h1 className="max-w-4xl text-5xl font-black uppercase leading-[0.98] md:text-7xl">
             Paperloop
           </h1>
           <p className="max-w-2xl text-xl font-extrabold leading-relaxed">
-            A blockchain-based educational paper recycling ecosystem that turns unused assignment sheets,
-            files, and paper waste into notebooks for students who need them.
+            A room-based educational paper recycling ecosystem connecting institutions, recyclers, and NGOs.
           </p>
           <div className="flex flex-wrap gap-3">
-            <Link href="/dashboard/institution" className="neo-button bg-[var(--yellow)]">
+            <Link href="/signup" className="neo-button bg-[var(--yellow)]">
               Start as Institution
               <ArrowRight size={18} />
             </Link>
-            <Link href="/tracking/101" className="neo-button bg-white">
-              Track demo batch
+            <Link href="/login" className="neo-button bg-white">
+              Login
             </Link>
           </div>
         </motion.div>

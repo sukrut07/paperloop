@@ -16,16 +16,18 @@ export default function Explorer() {
   }, []);
 
   const filtered = useMemo(() => {
-    return batches.filter((batch) => `${batch.batchId} ${batch.title} ${batch.ipfsHash}`.toLowerCase().includes(query.toLowerCase()));
+    return batches.filter((batch) =>
+      `${batch.batchId} ${batch.title} ${batch.proofFileName || ''} ${batch.proofUrl || ''}`.toLowerCase().includes(query.toLowerCase())
+    );
   }, [batches, query]);
 
   return (
     <div className="space-y-8">
       <header className="flex flex-col justify-between gap-5 md:flex-row md:items-end">
         <div>
-          <p className="font-black uppercase text-[var(--coral)]">Blockchain Explorer</p>
+          <p className="font-black uppercase text-[var(--coral)]">Workflow Explorer</p>
           <h1 className="mt-2 text-4xl font-black uppercase md:text-6xl">Paperloop Ledger</h1>
-          <p className="mt-2 max-w-2xl text-lg font-bold">Search batch IDs, IPFS hashes, and Polygon Amoy transaction records.</p>
+          <p className="mt-2 max-w-2xl text-lg font-bold">Search batch IDs, proof files, and system verification records.</p>
         </div>
         <div className="relative w-full md:w-96">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2" size={18} />
@@ -40,11 +42,11 @@ export default function Explorer() {
         </div>
         <div className="neo-card flex items-center gap-4 bg-[var(--cyan)] p-4">
           <ShieldCheck size={34} />
-          <div><p className="text-sm font-black uppercase">Network</p><p className="text-3xl font-black">Amoy</p></div>
+          <div><p className="text-sm font-black uppercase">Verification</p><p className="text-3xl font-black">System</p></div>
         </div>
         <div className="neo-card flex items-center gap-4 bg-[var(--green)] p-4">
           <ExternalLink size={34} />
-          <div><p className="text-sm font-black uppercase">Explorer</p><p className="text-3xl font-black">Polygon</p></div>
+          <div><p className="text-sm font-black uppercase">Proofs</p><p className="text-3xl font-black">Native</p></div>
         </div>
       </section>
 
@@ -54,20 +56,19 @@ export default function Explorer() {
             <tr>
               <th className="p-4">Batch</th>
               <th className="p-4">Status</th>
-              <th className="p-4">IPFS</th>
-              <th className="p-4">TX</th>
+              <th className="p-4">Proof</th>
+              <th className="p-4">Verification</th>
               <th className="p-4 text-right">Track</th>
             </tr>
           </thead>
           <tbody className="font-bold">
             {filtered.map((batch) => {
-              const tx = Object.values(batch.txHashes || {}).find(Boolean);
               return (
                 <tr key={batch.batchId} className="border-b-2 border-black">
                   <td className="p-4"><strong>#{batch.batchId}</strong><br /><span className="text-sm opacity-70">{batch.title}</span></td>
                   <td className="p-4"><StatusBadge status={batch.status} /></td>
-                  <td className="max-w-[220px] truncate p-4 font-mono text-xs">{batch.ipfsHash}</td>
-                  <td className="max-w-[180px] truncate p-4 font-mono text-xs">{tx || 'Pending'}</td>
+                  <td className="max-w-[220px] truncate p-4 text-xs">{batch.proofFileName || 'Pending'}</td>
+                  <td className="max-w-[180px] truncate p-4 text-xs">{batch.verificationTimestamp ? 'Verified' : 'Pending'}</td>
                   <td className="p-4 text-right"><Link href={`/tracking/${batch.batchId}`} className="neo-button bg-black text-xs text-white">Open</Link></td>
                 </tr>
               );

@@ -1,53 +1,48 @@
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
-import {
-  Batch,
-  IBatch,
-  ImpactReport,
-  Room,
-  TrackingLog,
-  TrackingStatus,
-  User,
-  UserRole,
-} from '../models';
-import { readOnChainBatch } from '../services/blockchain';
-import { uploadToIPFS } from '../services/pinata';
+import { Batch, ImpactReport, Room, TrackingLog, TrackingStatus, User, UserRole } from '../models';
 import { estimateImpact, estimatePages } from '../utils/impact';
+import { AuthenticatedRequest } from '../middleware/authMiddleware';
 
 const statusMessages: Record<TrackingStatus, string> = {
   Created: 'Paper batch created by institution',
   Accepted: 'Pickup accepted by recycling plant',
+  PickupStarted: 'Recycler started the pickup process',
   PickedUp: 'Paper collected from institution',
   InTransit: 'Batch is moving to the recycling plant',
-  Received: 'Recycling plant received the batch',
+  ReceivedAtPlant: 'Recycling plant received the batch',
+  Processing: 'Paper processing is underway at the plant',
   Recycled: 'Paper recycled into notebook stock',
+  BooksProduced: 'Notebook production completed',
   SentToNGO: 'Notebook stock accepted by NGO',
+  ReceivedByNGO: 'NGO received notebook delivery',
+  DistributionStarted: 'NGO started notebook distribution',
   Delivered: 'NGO confirmed distribution to students',
+  Rejected: 'Recycler rejected the shipment request',
 };
 
-const txKeyByStatus: Partial<Record<TrackingStatus, keyof IBatch['txHashes']>> = {
-  Created: 'created',
-  Accepted: 'accepted',
-  PickedUp: 'pickedUp',
-  InTransit: 'pickedUp',
-  Received: 'received',
-  Recycled: 'recycled',
-  SentToNGO: 'sentToNgo',
-  Delivered: 'delivered',
-};
+function verificationFor(actor: string, role: UserRole) {
+  return {
+    verifiedBy: actor,
+    verifiedRole: role,
+    verificationTimestamp: new Date().toISOString(),
+  };
+}
 
-function asObjectId(id?: string) {
-  return id && mongoose.Types.ObjectId.isValid(id) ? new mongoose.Types.ObjectId(id) : undefined;
+function actorName(req: AuthenticatedRequest) {
+  return req.authUser?.institutionName || req.authUser?.name || 'Paperloop member';
 }
 
 async function addTrackingLog(params: {
   batchId: number;
   status: TrackingStatus;
   actorRole: UserRole | 'system';
-  actorWallet?: string;
-  txHash?: string;
-  proofHash?: string;
   message?: string;
+  proofUrl?: string;
+  proofFileName?: string;
+  verifiedBy?: string;
+  verifiedRole?: UserRole;
+  verificationTimestamp?: string;
   location?: { lat: number; lng: number; address?: string };
 }) {
   return TrackingLog.create({
@@ -56,39 +51,40 @@ async function addTrackingLog(params: {
   });
 }
 
-async function updateBatchTransition(req: Request, res: Response, status: TrackingStatus) {
+async function updateBatchTransition(req: AuthenticatedRequest, res: Response, status: TrackingStatus) {
   try {
-    const { batchId, actorId, actorWallet, txHash, proofHash, message, location, actorRole } = req.body;
+    const { batchId, proofUrl, proofFileName, message, location } = req.body;
     const batch = await Batch.findOne({ batchId: Number(batchId) });
     if (!batch) return res.status(404).json({ error: 'Batch not found' });
 
-    const txKey = txKeyByStatus[status];
+    const role = (req.authUser?.role || (status === 'SentToNGO' || status === 'Delivered' ? 'ngo' : 'recycler')) as UserRole;
+    const verification = verificationFor(actorName(req), role);
+
     batch.status = status;
-    if (txKey && txHash) {
-      batch.txHashes[txKey] = txHash;
+    batch.proofUrl = proofUrl || batch.proofUrl;
+    batch.proofFileName = proofFileName || batch.proofFileName;
+    batch.verifiedBy = verification.verifiedBy;
+    batch.verifiedRole = verification.verifiedRole;
+    batch.verificationTimestamp = verification.verificationTimestamp;
+
+    if (status === 'Accepted' || status === 'PickupStarted' || status === 'PickedUp' || status === 'ReceivedAtPlant' || status === 'Processing' || status === 'Recycled' || status === 'BooksProduced') {
+      if (req.authUser?._id) batch.recyclerId = req.authUser._id as mongoose.Types.ObjectId;
     }
 
-    const actorObjectId = asObjectId(actorId);
-    if (status === 'Accepted' || status === 'PickedUp' || status === 'Received' || status === 'Recycled') {
-      if (actorObjectId) batch.recyclerId = actorObjectId;
-      if (actorWallet) batch.recyclerWallet = actorWallet.toLowerCase();
-    }
-
-    if (status === 'SentToNGO' || status === 'Delivered') {
-      if (actorObjectId) batch.ngoId = actorObjectId;
-      if (actorWallet) batch.ngoWallet = actorWallet.toLowerCase();
+    if (status === 'SentToNGO' || status === 'Delivered' || status === 'ReceivedByNGO' || status === 'DistributionStarted') {
+      if (req.authUser?._id) batch.ngoId = req.authUser._id as mongoose.Types.ObjectId;
     }
 
     await batch.save();
     await addTrackingLog({
       batchId: batch.batchId,
       status,
-      actorRole: actorRole || (status === 'SentToNGO' || status === 'Delivered' ? 'ngo_admin' : 'recycler'),
-      actorWallet,
-      txHash,
-      proofHash,
+      actorRole: role,
+      proofUrl,
+      proofFileName,
       message,
       location,
+      ...verification,
     });
 
     if (status === 'Delivered') {
@@ -111,79 +107,52 @@ async function updateBatchTransition(req: Request, res: Response, status: Tracki
   }
 }
 
-export const prepareBatchIPFS = async (req: Request, res: Response) => {
+export const uploadProofAsset = async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const {
-      title,
-      institutionId,
-      institutionWallet,
-      weight,
-      roomCode,
-      pickupLocation,
-      proofImages = [],
-      notes,
-    } = req.body;
+    const { proofImages = [], proofType = 'proof', proofFileName } = req.body;
+    const proofUrl = Array.isArray(proofImages) && proofImages.length ? String(proofImages[0]) : '';
 
-    const metadata = {
-      app: 'Paperloop',
-      title,
-      institutionId,
-      institutionWallet,
-      weight: Number(weight),
-      pagesEstimate: estimatePages(Number(weight)),
-      impact: estimateImpact(Number(weight)),
-      roomCode,
-      pickupLocation,
-      proofImages,
-      notes,
-      createdAt: new Date().toISOString(),
-    };
-
-    const ipfsHash = await uploadToIPFS(metadata);
-    return res.status(201).json({ ipfsHash, metadata });
+    return res.status(201).json({
+      proofUrl,
+      proofType,
+      proofFileName: proofFileName || 'proof-upload',
+      uploadedAt: new Date().toISOString(),
+      uploadedBy: actorName(req),
+    });
   } catch (error: any) {
     return res.status(500).json({ error: error.message });
   }
 };
 
-export const createBatch = async (req: Request, res: Response) => {
+export const createBatch = async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const {
-      batchId,
-      institutionId,
-      institutionWallet,
-      title,
-      weight,
-      roomCode,
-      pickupLocation,
-      proofImages = [],
-      ipfsHash,
-      txHash,
-    } = req.body;
+    const { batchId, title, weight, roomCode, pickupLocation, proofImages = [], proofUrl, proofFileName, paperType } = req.body;
 
-    if (!batchId || !institutionId || !institutionWallet || !weight || !ipfsHash) {
+    if (!batchId || !weight || !req.authUser?._id) {
       return res.status(400).json({
-        error: 'batchId, institutionId, institutionWallet, weight, and ipfsHash are required',
+        error: 'batchId, weight, and authentication are required',
       });
     }
 
+    const verification = verificationFor(actorName(req), 'institution');
     const impact = estimateImpact(Number(weight));
     const batch = await Batch.findOneAndUpdate(
       { batchId: Number(batchId) },
       {
         batchId: Number(batchId),
-        institutionId,
-        institutionWallet: institutionWallet.toLowerCase(),
+        institutionId: req.authUser._id,
         title: title || `Paper batch ${batchId}`,
         weight: Number(weight),
+        paperType,
         pagesEstimate: estimatePages(Number(weight)),
         notebooksEstimate: impact.notebooksCreated,
         status: 'Created',
-        ipfsHash,
         proofImages,
         roomCode,
         pickupLocation,
-        txHashes: { created: txHash },
+        proofUrl: proofUrl || proofImages[0],
+        proofFileName: proofFileName || 'initial-proof',
+        ...verification,
       },
       { upsert: true, new: true, setDefaultsOnInsert: true }
     );
@@ -195,17 +164,18 @@ export const createBatch = async (req: Request, res: Response) => {
     await addTrackingLog({
       batchId: Number(batchId),
       status: 'Created',
-      actorRole: 'institution_admin',
-      actorWallet: institutionWallet,
-      txHash,
+      actorRole: 'institution',
       location: pickupLocation,
+      proofUrl: proofUrl || proofImages[0],
+      proofFileName: proofFileName || 'initial-proof',
+      ...verification,
     });
 
     await ImpactReport.findOneAndUpdate(
       { batchId: Number(batchId) },
       {
         batchId: Number(batchId),
-        ownerId: institutionId,
+        ownerId: req.authUser._id,
         paperKg: Number(weight),
         ...impact,
       },
@@ -221,22 +191,26 @@ export const createBatch = async (req: Request, res: Response) => {
 export const getBatch = async (req: Request, res: Response) => {
   try {
     const batchId = Number(req.params.id);
-    const [batch, chainBatch] = await Promise.all([
-      Batch.findOne({ batchId }).populate('institutionId recyclerId ngoId'),
-      readOnChainBatch(batchId).catch(() => null),
-    ]);
+    const batch = await Batch.findOne({ batchId }).populate('institutionId recyclerId ngoId');
 
     if (!batch) return res.status(404).json({ error: 'Batch not found' });
-    return res.json({ batch, chainBatch });
+    return res.json({ batch });
   } catch (error: any) {
     return res.status(500).json({ error: error.message });
   }
 };
 
-export const listBatches = async (req: Request, res: Response) => {
+export const listBatches = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const status = req.query.status as TrackingStatus | undefined;
     const filter: Record<string, unknown> = status ? { status } : {};
+    if (req.authUser?.role === 'institution') filter.institutionId = req.authUser._id;
+    if (req.authUser?.role === 'recycler' && !status) {
+      filter.status = { $in: ['Created', 'Accepted', 'PickupStarted', 'PickedUp', 'InTransit', 'ReceivedAtPlant', 'Processing', 'Recycled', 'BooksProduced'] };
+    }
+    if (req.authUser?.role === 'ngo' && !status) {
+      filter.status = { $in: ['SentToNGO', 'ReceivedByNGO', 'DistributionStarted'] };
+    }
     const batches = await Batch.find(filter).sort({ createdAt: -1 }).limit(50);
     return res.json(batches);
   } catch (error: any) {
@@ -262,30 +236,41 @@ export const getRecycledBatches = async (_req: Request, res: Response) => {
   }
 };
 
-export const acceptBatch = (req: Request, res: Response) => updateBatchTransition(req, res, 'Accepted');
-export const pickupBatch = (req: Request, res: Response) => updateBatchTransition(req, res, 'PickedUp');
-export const transitBatch = (req: Request, res: Response) => updateBatchTransition(req, res, 'InTransit');
-export const receiveBatch = (req: Request, res: Response) => updateBatchTransition(req, res, 'Received');
-export const recycleBatch = (req: Request, res: Response) => updateBatchTransition(req, res, 'Recycled');
-export const distributeBatch = (req: Request, res: Response) => {
+export const acceptBatch = (req: AuthenticatedRequest, res: Response) => updateBatchTransition(req, res, 'Accepted');
+export const pickupBatch = (req: AuthenticatedRequest, res: Response) => updateBatchTransition(req, res, 'PickedUp');
+export const transitBatch = (req: AuthenticatedRequest, res: Response) => updateBatchTransition(req, res, 'InTransit');
+export const receiveBatch = (req: AuthenticatedRequest, res: Response) => updateBatchTransition(req, res, 'ReceivedAtPlant');
+export const recycleBatch = (req: AuthenticatedRequest, res: Response) => updateBatchTransition(req, res, 'Recycled');
+export const distributeBatch = (req: AuthenticatedRequest, res: Response) => {
   const targetStatus: TrackingStatus = req.body.finalDelivery ? 'Delivered' : 'SentToNGO';
   return updateBatchTransition(req, res, targetStatus);
 };
 
-export const addProofUpdate = async (req: Request, res: Response) => {
+export const addProofUpdate = async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { batchId, actorRole = 'teacher', actorWallet, proofHash, message, location } = req.body;
+    const { batchId, proofUrl, proofFileName, message, location } = req.body;
     const batch = await Batch.findOne({ batchId: Number(batchId) });
     if (!batch) return res.status(404).json({ error: 'Batch not found' });
+
+    const role = (req.authUser?.role || 'institution') as UserRole;
+    const verification = verificationFor(actorName(req), role);
+
+    batch.proofUrl = proofUrl || batch.proofUrl;
+    batch.proofFileName = proofFileName || batch.proofFileName;
+    batch.verifiedBy = verification.verifiedBy;
+    batch.verifiedRole = verification.verifiedRole;
+    batch.verificationTimestamp = verification.verificationTimestamp;
+    await batch.save();
 
     await addTrackingLog({
       batchId: batch.batchId,
       status: batch.status,
-      actorRole,
-      actorWallet,
-      proofHash,
+      actorRole: role,
+      proofUrl,
+      proofFileName,
       message: message || 'Progress proof uploaded',
       location,
+      ...verification,
     });
 
     return res.json(batch);
@@ -297,10 +282,7 @@ export const addProofUpdate = async (req: Request, res: Response) => {
 export const getTracking = async (req: Request, res: Response) => {
   try {
     const batchId = Number(req.params.batchId);
-    const [batch, logs] = await Promise.all([
-      Batch.findOne({ batchId }),
-      TrackingLog.find({ batchId }).sort({ createdAt: 1 }),
-    ]);
+    const [batch, logs] = await Promise.all([Batch.findOne({ batchId }), TrackingLog.find({ batchId }).sort({ createdAt: 1 })]);
 
     if (!batch) return res.status(404).json({ error: 'Batch not found' });
     return res.json({ batch, logs });
@@ -351,9 +333,9 @@ export const seedDemoData = async (_req: Request, res: Response) => {
       {
         uid: 'demo-institution',
         email: 'admin@paperloop.edu',
-        role: 'institution_admin',
+        role: 'institution',
         name: 'Paperloop Public School',
-        walletAddress: '0x0000000000000000000000000000000000000001',
+        institutionName: 'Paperloop Public School',
       },
       { upsert: true, new: true }
     );
@@ -363,16 +345,18 @@ export const seedDemoData = async (_req: Request, res: Response) => {
       {
         batchId: 101,
         institutionId: institution._id,
-        institutionWallet: institution.walletAddress,
         title: 'Semester answer sheets',
         weight: 85,
         pagesEstimate: estimatePages(85),
         notebooksEstimate: estimateImpact(85).notebooksCreated,
         status: 'InTransit',
-        ipfsHash: 'local-demo-ipfs-hash',
         proofImages: [],
+        proofUrl: 'https://example.com/proofs/demo-shipment.jpg',
+        proofFileName: 'demo-shipment.jpg',
         pickupLocation: { lat: 19.076, lng: 72.8777, address: 'Mumbai, Maharashtra' },
-        txHashes: { created: '0xdemo' },
+        verifiedBy: 'Paperloop demo',
+        verifiedRole: 'institution',
+        verificationTimestamp: new Date().toISOString(),
       },
       { upsert: true, new: true }
     );

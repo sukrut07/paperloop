@@ -6,9 +6,11 @@ import { StatCard } from '@/components/StatCard';
 import { api } from '@/lib/api';
 import { demoAnalytics } from '@/lib/demo';
 import type { AnalyticsSummary } from '@/lib/types';
+import { useRequireAuth } from '@/lib/auth';
 
 export default function AnalyticsPage() {
   const [summary, setSummary] = useState<AnalyticsSummary>(demoAnalytics);
+  useRequireAuth(['admin']);
 
   useEffect(() => {
     api.analytics().then(setSummary);
@@ -21,7 +23,7 @@ export default function AnalyticsPage() {
       <header>
         <p className="font-black uppercase text-[var(--coral)]">Impact Reports</p>
         <h1 className="mt-2 text-4xl font-black uppercase md:text-6xl">Analytics</h1>
-        <p className="mt-2 max-w-2xl text-lg font-bold">Operational metrics from MongoDB with final delivery proofs anchored to Polygon.</p>
+        <p className="mt-2 max-w-2xl text-lg font-bold">Operational metrics from MongoDB with room-based proofs and system verification.</p>
       </header>
 
       <section className="grid gap-5 md:grid-cols-3">

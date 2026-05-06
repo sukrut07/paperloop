@@ -2,13 +2,15 @@ import express from 'express';
 import mongoose from 'mongoose';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import path from 'node:path';
 
-dotenv.config();
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 import batchRoutes from './routes/batchRoutes';
 import roomRoutes from './routes/roomRoutes';
 import trackingRoutes from './routes/trackingRoutes';
 import userRoutes from './routes/userRoutes';
+import authRoutes from './routes/authRoutes';
 import { firebaseAuth } from './middleware/auth';
 
 const app = express();
@@ -23,6 +25,7 @@ app.use(
 app.use(express.json({ limit: '15mb' }));
 app.use(firebaseAuth);
 
+app.use('/auth', authRoutes);
 app.use('/batch', batchRoutes);
 app.use('/room', roomRoutes);
 app.use('/tracking', trackingRoutes);
@@ -32,7 +35,7 @@ app.get('/health', (_req, res) => {
   res.json({
     ok: true,
     service: 'paperloop-api',
-    network: process.env.POLYGON_NETWORK || 'polygon-amoy',
+    workflow: 'web-native',
   });
 });
 

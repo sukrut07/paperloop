@@ -1,27 +1,38 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { Menu, WalletCards } from 'lucide-react';
-import { useWallet } from '@/hooks/useWallet';
-import { useRole } from '@/hooks/useRole';
-
-const dashboardByRole = {
-  teacher: '/dashboard/institution',
-  recycler: '/dashboard/recycler',
-  ngo: '/dashboard/ngo',
-};
+import { usePathname, useRouter } from 'next/navigation';
+import { LogOut, Menu } from 'lucide-react';
+import { useAuth } from '@/lib/auth';
 
 export default function Navbar() {
+  const router = useRouter();
   const pathname = usePathname();
-  const { address, connectWallet, isAmoy, switchToAmoy } = useWallet();
-  const { role, setRole } = useRole();
-  const navItems = [
-    { name: 'My Dashboard', href: dashboardByRole[role] },
-    ...(role === 'teacher' ? [{ name: 'Create Room', href: '/room/create' }, { name: 'Join Room', href: '/room/join' }] : []),
-    { name: 'Track', href: '/tracking/101' },
-    { name: 'Profile', href: '/profile' },
-  ];
+  const { user, logout } = useAuth();
+  const role = user?.role || 'institution';
+
+  const navItems =
+    role === 'recycler'
+      ? [
+          { name: 'Dashboard', href: '/dashboard/recyclers' },
+          { name: 'Profile', href: '/dashboard/profile' },
+        ]
+      : role === 'ngo'
+        ? [
+            { name: 'Dashboard', href: '/dashboard/ngo' },
+            { name: 'Profile', href: '/dashboard/profile' },
+          ]
+        : [
+            { name: 'Dashboard', href: '/dashboard' },
+            { name: 'History', href: '/dashboard/history' },
+            { name: 'Recyclers', href: '/dashboard/recyclers' },
+            { name: 'Profile', href: '/dashboard/profile' },
+          ];
+
+  async function handleLogout() {
+    await logout();
+    router.replace('/login');
+  }
 
   return (
     <nav className="sticky top-0 z-50 border-b-[3px] border-black bg-[var(--paper)]">
@@ -34,39 +45,37 @@ export default function Navbar() {
         </Link>
 
         <div className="hidden items-center gap-2 lg:flex">
-          <select
-            className="rounded-md border-[3px] border-black bg-white px-3 py-2 text-sm font-black uppercase"
-            value={role}
-            onChange={(event) => setRole(event.target.value as any)}
-            aria-label="Select Paperloop role"
-          >
-            <option value="teacher">Teacher</option>
-            <option value="recycler">Recycler</option>
-            <option value="ngo">NGO</option>
-          </select>
-          {navItems.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`rounded-md px-3 py-2 text-sm font-black uppercase ${
-                pathname === item.href ? 'bg-[var(--cyan)] neo-border border-[2px]' : 'hover:bg-black/5'
-              }`}
-            >
-              {item.name}
-            </Link>
-          ))}
+          {user ? (
+            navItems.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`rounded-md px-3 py-2 text-sm font-black uppercase ${
+                  pathname === item.href || pathname.startsWith(`${item.href}/`) ? 'neo-border border-[2px] bg-[var(--cyan)]' : 'hover:bg-black/5'
+                }`}
+              >
+                {item.name}
+              </Link>
+            ))
+          ) : (
+            <>
+              <Link href="/login" className="rounded-md px-3 py-2 text-sm font-black uppercase hover:bg-black/5">
+                Login
+              </Link>
+              <Link href="/signup" className="rounded-md px-3 py-2 text-sm font-black uppercase hover:bg-black/5">
+                Sign Up
+              </Link>
+            </>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
-          {address && !isAmoy ? (
-            <button className="neo-button bg-[var(--coral)] text-xs" onClick={switchToAmoy}>
-              Polygon Amoy
+          {user ? (
+            <button className="neo-button bg-[var(--yellow)] text-xs" onClick={handleLogout}>
+              <LogOut size={16} />
+              Logout
             </button>
           ) : null}
-          <button className="neo-button bg-[var(--yellow)] text-xs" onClick={connectWallet}>
-            <WalletCards size={16} />
-            {address ? `${address.slice(0, 6)}...${address.slice(-4)}` : 'Connect'}
-          </button>
           <button className="neo-button bg-white p-2 lg:hidden" aria-label="Open menu">
             <Menu size={18} />
           </button>

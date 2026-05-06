@@ -1,5 +1,7 @@
 import { NextFunction, Request, Response } from 'express';
 import { getFirebaseAdmin } from '../services/firebaseAdmin';
+export { verifyToken } from './authMiddleware';
+export { authorizeRoles } from './roleMiddleware';
 
 export interface AuthenticatedRequest extends Request {
   user?: {

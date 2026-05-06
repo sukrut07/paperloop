@@ -1,10 +1,28 @@
 import { Router } from 'express';
-import { createRoom, getRoom, joinRoom } from '../controllers/roomController';
+import {
+  addRoomMember,
+  addRoomMessage,
+  createRoom,
+  getRoom,
+  joinRoom,
+  listRooms,
+  selectRecycler,
+  updateRoomShipment,
+} from '../controllers/roomController';
+import { verifyToken } from '../middleware/authMiddleware';
+import { authorizeRoles } from '../middleware/roleMiddleware';
 
 const router = Router();
 
-router.post('/create', createRoom);
-router.post('/join', joinRoom);
-router.get('/:code', getRoom);
+router.use(verifyToken);
+
+router.get('/', authorizeRoles('institution', 'recycler', 'ngo', 'admin'), listRooms);
+router.post('/create', authorizeRoles('institution'), createRoom);
+router.post('/join', authorizeRoles('institution', 'recycler', 'ngo', 'admin'), joinRoom);
+router.post('/:code/members', authorizeRoles('institution', 'recycler', 'ngo', 'admin'), addRoomMember);
+router.post('/:code/messages', authorizeRoles('institution', 'recycler', 'ngo', 'admin'), addRoomMessage);
+router.post('/:code/recycler', authorizeRoles('institution', 'admin'), selectRecycler);
+router.post('/:code/shipment', authorizeRoles('institution', 'recycler', 'ngo', 'admin'), updateRoomShipment);
+router.get('/:code', authorizeRoles('institution', 'recycler', 'ngo', 'admin'), getRoom);
 
 export default router;

@@ -105,3 +105,7 @@ textarea {
 .neo-input:focus {
   box-shadow: 4px 4px 0 var(--ink);
 }
+
+.dashboard-room-grid > :only-child {
+  grid-column: 1 / -1;
+}

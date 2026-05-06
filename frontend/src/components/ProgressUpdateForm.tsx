@@ -5,6 +5,10 @@ import { Camera, CheckCircle2, Loader2 } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { Batch } from '@/lib/types';
 
+function getErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback;
+}
+
 function fileToDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -24,7 +28,7 @@ export function ProgressUpdateForm({
   finalDelivery = false,
 }: {
   batch: Batch;
-  role: 'teacher' | 'recycler' | 'ngo_admin';
+  role: 'institution' | 'recycler' | 'ngo';
   action: 'proof' | 'accept' | 'pickup' | 'transit' | 'receive' | 'recycle' | 'distribute';
   label: string;
   message: string;
@@ -54,12 +58,15 @@ export function ProgressUpdateForm({
     setLoading(true);
     try {
       const proofImage = await fileToDataUrl(file);
-      const proof = await api.prepareBatchIPFS({
+      const proof = await api.uploadProof({
         batchId: batch.batchId,
         role,
         action,
         message,
         proofImages: [proofImage],
+        proofType: `${role}-proof`,
+        uploadedBy: role,
+        proofFileName: file.name,
         capturedAt: new Date().toISOString(),
       });
 
@@ -67,14 +74,16 @@ export function ProgressUpdateForm({
         await api.addProof({
           batchId: batch.batchId,
           actorRole: role,
-          proofHash: proof.ipfsHash,
+          proofUrl: proof.proofUrl,
+          proofFileName: proof.proofFileName,
           message,
         });
       } else {
         await api.transitionBatch(action, {
           batchId: batch.batchId,
           actorRole: role,
-          proofHash: proof.ipfsHash,
+          proofUrl: proof.proofUrl,
+          proofFileName: proof.proofFileName,
           message,
           finalDelivery,
         });
@@ -83,8 +92,8 @@ export function ProgressUpdateForm({
       setDone(true);
       setFile(null);
       onUpdated?.();
-    } catch (err: any) {
-      setError(err.message || 'Could not update progress');
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Could not update progress'));
     } finally {
       setLoading(false);
     }

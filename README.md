@@ -1,58 +1,39 @@
 # Paperloop
 
-Paperloop is a full-stack blockchain platform for educational paper recycling. Institutions donate unused assignment sheets, files, and paper waste; recyclers collect and convert it into notebooks/books; NGOs distribute the finished stock to underprivileged students.
+Paperloop is a full-stack web-native platform for educational paper recycling. Institutions create shipment rooms, recyclers manage pickup and recycling milestones, and NGOs track notebook delivery and distribution.
 
-## Three-Layer Blockchain Workflow
+## Room-Based Workflow
 
-1. **Institution Layer**
-   - Teachers and institution admins create 6-digit rooms.
-   - Institutions create paper batches with weight, proof images, location, and room code.
-   - Proof metadata is pinned to IPFS through Pinata.
-   - The IPFS hash and ownership are written to Polygon Amoy through `Paperloop.sol`.
+1. **Institution flow**
+   - Create a shipment room with a 6-digit invite code.
+   - Add room batches, invite members, and connect a recycler.
+   - Upload proofs directly into the room documents tab.
 
-2. **Recycling Layer**
-   - Recyclers view available batches and nearby pickup locations.
-   - Recycler wallet accepts the batch on-chain.
-   - Pickup, received, and recycled milestones are recorded in MongoDB and Polygon.
+2. **Recycler flow**
+   - Review incoming room requests.
+   - Accept terms, enter the room, and move the shipment through pickup, plant intake, recycling, and notebook production.
+   - Attach proofs to major milestones when needed.
 
-3. **NGO Layer**
-   - NGOs view recycled notebook stock.
-   - NGO wallet accepts donation stock.
-   - Final distribution is confirmed on-chain and included in impact analytics.
+3. **NGO flow**
+   - Receive notebook deliveries inside the room workflow.
+   - Update receipt, distribution start, and final delivery.
+   - Keep final distribution proofs and impact history together.
 
 ## What Lives Where
 
-- **MongoDB:** profiles, rooms, analytics, mutable batch metadata, tracking logs, impact reports.
-- **Polygon Amoy:** immutable batch ownership, proof hash, status transitions, delivery verification.
-- **IPFS/Pinata:** paper proof metadata and uploaded proof image payloads.
-- **Firebase Auth:** user identity and session tokens.
-- **MetaMask/Ethers.js:** wallet connection and contract writes from the browser.
-- **Google Maps:** recycler pickup context and location links.
+- **MongoDB:** users, rooms, batches, tracking logs, impact reports
+- **Firebase Auth:** Google login, email/password login, session identity
+- **Google Maps:** recycler matching by pickup location
+- **Web-native proof storage:** proof URLs, proof filenames, verification records
 
 ## Project Structure
 
 ```text
-frontend/      Next.js app, dashboards, tracking, wallet hooks, contract ABI
-backend/       Express API, MongoDB models, Firebase middleware, Pinata service
-blockchain/    Solidity contract, Hardhat config, Polygon Amoy deploy script
+frontend/      Next.js app, dashboards, rooms, tracking, Google login UI
+backend/       Express API, MongoDB models, Firebase middleware
 ```
 
 ## Local Setup
-
-### Blockchain
-
-```bash
-cd blockchain
-cp .env.example .env
-npm install
-npm run compile
-npm run deploy:amoy
-```
-
-Copy the deployed contract address into:
-
-- `backend/.env` as `PAPERLOOP_CONTRACT_ADDRESS`
-- `frontend/.env.local` as `NEXT_PUBLIC_PAPERLOOP_CONTRACT_ADDRESS`
 
 ### Backend
 
@@ -66,7 +47,7 @@ npm run dev
 Important API routes:
 
 ```text
-POST /batch/ipfs
+POST /batch/proof-upload
 POST /batch/create
 GET  /batch/:id
 GET  /batch/available
@@ -98,19 +79,14 @@ Open `http://localhost:3000`.
 - **Frontend:** Vercel using `frontend/vercel.json`
 - **Backend:** Render using `backend/render.yaml`
 - **Database:** MongoDB Atlas connection string in `MONGODB_URI`
-- **Blockchain:** Polygon Amoy RPC and deployed `Paperloop.sol`
-- **Storage:** Pinata API key and secret in backend environment variables
 - **Auth:** Firebase web config in frontend and Firebase service account in backend
+- **Optional notifications:** hook a mail provider into the backend if you want live outbound email delivery instead of the built-in app notification queue
 
 ## Implementation Flow
 
-1. Institution admin creates a room and shares the 6-digit code with teachers.
-2. Teacher/admin creates a paper batch from `/batch/create`.
-3. Frontend sends proof metadata to `POST /batch/ipfs`.
-4. Backend pins metadata to Pinata and returns `ipfsHash`.
-5. Frontend calls `createBatch(weight, ipfsHash)` through MetaMask.
-6. Frontend sends the final `batchId`, `ipfsHash`, and `txHash` to `POST /batch/create`.
-7. Recycler accepts and updates pickup lifecycle from the recycler dashboard.
-8. NGO accepts recycled stock and confirms final delivery.
-9. Tracking page shows the Amazon/Flipkart-style progress bar and timeline logs.
-10. Analytics page aggregates operational and impact metrics.
+1. Institution admin creates a room and shares the 6-digit code.
+2. Institution creates batches inside that room.
+3. Recycler is matched and connected to the room.
+4. Room tracking updates as the shipment moves through pickup, recycling, and NGO delivery.
+5. Proofs stay attached to the room documents tab with system verification metadata.
+6. Analytics aggregates operational and impact metrics from completed workflows.

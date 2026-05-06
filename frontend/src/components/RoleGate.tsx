@@ -2,12 +2,13 @@
 
 import Link from 'next/link';
 import type { AppRole } from '@/hooks/useRole';
-import { useRole } from '@/hooks/useRole';
+import { useRequireAuth } from '@/lib/auth';
 
 const labels: Record<AppRole, string> = {
-  teacher: 'Teacher',
+  institution: 'Institution',
   recycler: 'Recycler',
   ngo: 'NGO',
+  admin: 'Admin',
 };
 
 export function RoleGate({
@@ -17,9 +18,10 @@ export function RoleGate({
   allowed: AppRole;
   children: React.ReactNode;
 }) {
-  const { role, setRole } = useRole();
+  const { user, loading } = useRequireAuth([allowed]);
 
-  if (role === allowed) return <>{children}</>;
+  if (loading || !user) return null;
+  if (user.role === allowed) return <>{children}</>;
 
   return (
     <div className="mx-auto max-w-2xl space-y-5">
@@ -27,15 +29,10 @@ export function RoleGate({
         <p className="font-black uppercase">Wrong dashboard for your selected role</p>
         <h1 className="mt-2 text-3xl font-black uppercase">{labels[allowed]} dashboard only</h1>
         <p className="mt-3 font-bold">
-          Your current role is {labels[role]}. Paperloop keeps teacher, recycler, and NGO workflows separate so progress updates stay clean.
+          Your current role is {labels[user.role]}. Paperloop keeps institution, recycler, NGO, and admin workflows separate so progress updates stay clean.
         </p>
       </div>
-      <button className="neo-button bg-[var(--yellow)]" onClick={() => setRole(allowed)}>
-        Switch to {labels[allowed]}
-      </button>
-      <Link href="/profile" className="neo-button bg-white">
-        Manage Role
-      </Link>
+      <Link href="/profile" className="neo-button bg-white">Manage Profile</Link>
     </div>
   );
 }
