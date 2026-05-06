@@ -12,3 +12,8 @@ backend/dist/
 blockchain/cache/
 blockchain/artifacts/
 blockchain/deployments/*.local.json
+
+backend/firebase-service-account.json
+backend/.env
+backend/.env.local
+frontend/.env.local

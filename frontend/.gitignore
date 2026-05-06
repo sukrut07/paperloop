@@ -39,3 +39,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Secrets
+backend/firebase-service-account.json
+backend/.env
+backend/.env.local
+frontend/.env.local
