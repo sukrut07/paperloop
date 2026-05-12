@@ -2,6 +2,7 @@
 
 import {
   GoogleAuthProvider,
+  User as FirebaseUser,
   browserLocalPersistence,
   browserSessionPersistence,
   createUserWithEmailAndPassword,
@@ -11,7 +12,7 @@ import {
   signInWithEmailAndPassword,
   signInWithPopup,
   signOut,
-  updateProfile,
+  updateProfile as updateFirebaseProfile,
 } from 'firebase/auth';
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
@@ -23,14 +24,16 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001';
 const TOKEN_KEY = 'paperloop.jwt';
 const USER_KEY = 'paperloop.user';
 const LOCAL_ACCOUNTS_KEY = 'paperloop.localAuth.accounts';
+const LOCAL_GOOGLE_PROFILES_KEY = 'paperloop.localAuth.googleProfiles';
 
 interface AuthContextValue {
   user: UserProfile | null;
   token: string | null;
   loading: boolean;
   signup: (input: SignupInput) => Promise<void>;
-  login: (email: string, password: string, remember: boolean) => Promise<void>;
-  loginWithGoogle: (role: Role, remember: boolean, organizationName?: string) => Promise<void>;
+  login: (email: string, password: string, remember: boolean) => Promise<UserProfile>;
+  loginWithGoogle: (role: Role | undefined, remember: boolean, organizationName?: string) => Promise<UserProfile>;
+  updateProfile: (input: ProfileInput) => Promise<UserProfile>;
   logout: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
   refreshEmailVerification: () => Promise<void>;
@@ -43,6 +46,13 @@ interface SignupInput {
   role: Role;
   remember: boolean;
   organizationName?: string;
+}
+
+interface ProfileInput {
+  name: string;
+  role: Role;
+  organizationName?: string;
+  phone?: string;
 }
 
 async function authRequest<T>(path: string, options: RequestInit = {}, token?: string | null): Promise<T> {
@@ -83,19 +93,63 @@ function requireFirebaseAuth() {
 
 type LocalAccount = UserProfile & { password: string };
 
-function readLocalAccounts() {
-  if (typeof window === 'undefined') return [] as LocalAccount[];
-  const raw = localStorage.getItem(LOCAL_ACCOUNTS_KEY);
-  if (!raw) return [] as LocalAccount[];
+function readJson<T>(key: string, fallback: T): T {
+  if (typeof window === 'undefined') return fallback;
+  const raw = localStorage.getItem(key);
+  if (!raw) return fallback;
   try {
-    return JSON.parse(raw) as LocalAccount[];
+    return JSON.parse(raw) as T;
   } catch {
-    return [] as LocalAccount[];
+    return fallback;
   }
 }
 
+function writeJson<T>(key: string, value: T) {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(key, JSON.stringify(value));
+}
+
+function readLocalAccounts() {
+  return readJson<LocalAccount[]>(LOCAL_ACCOUNTS_KEY, []);
+}
+
 function writeLocalAccounts(accounts: LocalAccount[]) {
-  localStorage.setItem(LOCAL_ACCOUNTS_KEY, JSON.stringify(accounts));
+  writeJson(LOCAL_ACCOUNTS_KEY, accounts);
+}
+
+function readLocalGoogleProfiles() {
+  return readJson<UserProfile[]>(LOCAL_GOOGLE_PROFILES_KEY, []);
+}
+
+function writeLocalGoogleProfile(user: UserProfile) {
+  const profiles = readLocalGoogleProfiles();
+  writeJson(LOCAL_GOOGLE_PROFILES_KEY, [user, ...profiles.filter((profile) => profile.email !== user.email)]);
+}
+
+function writeLocalAccountProfile(user: UserProfile) {
+  const accounts = readLocalAccounts();
+  writeLocalAccounts(accounts.map((account) => (account.email === user.email ? { ...account, ...user, password: account.password } : account)));
+}
+
+function persistCurrentSession(nextToken: string, nextUser: UserProfile) {
+  const sessionHasToken = typeof window !== 'undefined' && Boolean(sessionStorage.getItem(TOKEN_KEY));
+  const storage = sessionHasToken ? sessionStorage : localStorage;
+  storage.setItem(TOKEN_KEY, nextToken);
+  storage.setItem(USER_KEY, JSON.stringify(nextUser));
+  if (sessionHasToken) {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(USER_KEY);
+  } else {
+    sessionStorage.removeItem(TOKEN_KEY);
+    sessionStorage.removeItem(USER_KEY);
+  }
+  setLocalRole(nextUser.role);
+  window.dispatchEvent(new CustomEvent('paperloop-auth-change', { detail: nextUser }));
+}
+
+function updateLocalProfiles(nextUser: UserProfile) {
+  writeLocalAccountProfile(nextUser);
+  writeLocalGoogleProfile(nextUser);
 }
 
 function localAuthPayload(user: UserProfile) {
@@ -103,6 +157,38 @@ function localAuthPayload(user: UserProfile) {
     token: `local-demo-token-${user.uid}`,
     user,
   };
+}
+
+function isBackendUnreachable(error: unknown) {
+  return error instanceof Error && error.message.includes('Backend API is not reachable');
+}
+
+function firebaseFallbackPayload(firebaseUser: FirebaseUser, role?: Role, organizationName?: string) {
+  const email = firebaseUser.email?.trim().toLowerCase() || `${firebaseUser.uid}@firebase.local`;
+  const existingGoogleProfile = readLocalGoogleProfiles().find((profile) => profile.email === email);
+  const existingLocalAccount = readLocalAccounts().find((account) => account.email === email);
+  const resolvedRole = role || existingGoogleProfile?.role || existingLocalAccount?.role || 'institution';
+  const resolvedOrganizationName =
+    organizationName ||
+    existingGoogleProfile?.organizationName ||
+    existingGoogleProfile?.institutionName ||
+    existingLocalAccount?.organizationName ||
+    existingLocalAccount?.institutionName;
+  const name = firebaseUser.displayName || email.split('@')[0];
+  const user: UserProfile = {
+    id: `firebase-local-${firebaseUser.uid}`,
+    uid: firebaseUser.uid,
+    name,
+    email,
+    role: resolvedRole,
+    isVerified: firebaseUser.emailVerified,
+    institutionName: resolvedOrganizationName,
+    organizationName: resolvedOrganizationName,
+    createdAt: new Date().toISOString(),
+  };
+  writeLocalGoogleProfile(user);
+  setLocalRole(resolvedRole);
+  return localAuthPayload(user);
 }
 
 function createLocalAuthUser(input: SignupInput) {
@@ -278,13 +364,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const firebaseAuth = requireFirebaseAuth();
         await setPersistence(firebaseAuth, remember ? browserLocalPersistence : browserSessionPersistence);
         const credential = await createUserWithEmailAndPassword(firebaseAuth, email, password);
-        await updateProfile(credential.user, { displayName: name });
+        await updateFirebaseProfile(credential.user, { displayName: name });
         const idToken = await credential.user.getIdToken(true);
-        const payload = await authRequest<{ token: string; user: UserProfile }>('/auth/firebase', {
-          method: 'POST',
-          body: JSON.stringify({ idToken, name, role, institutionName: organizationName }),
-        });
-        applyAuth(payload);
+        let payload: { token: string; user: UserProfile };
+        try {
+          payload = await authRequest<{ token: string; user: UserProfile }>('/auth/firebase', {
+            method: 'POST',
+            body: JSON.stringify({ idToken, name, role, institutionName: organizationName }),
+          });
+          applyAuth(payload);
+        } catch (error) {
+          if (!isBackendUnreachable(error)) throw error;
+          payload = firebaseFallbackPayload(credential.user, role, organizationName);
+          setToken(payload.token);
+          setUser(payload.user);
+          ensureInstitutionRoom(payload.user);
+          persistFallbackSession(remember, payload);
+        }
       } catch (error) {
         throw authError(error, 'Signup failed');
       }
@@ -310,18 +406,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setUser(payload.user);
           ensureInstitutionRoom(payload.user);
           persistFallbackSession(remember, payload);
-          return;
+          return payload.user;
         }
 
         const firebaseAuth = requireFirebaseAuth();
         await setPersistence(firebaseAuth, remember ? browserLocalPersistence : browserSessionPersistence);
         const credential = await signInWithEmailAndPassword(firebaseAuth, email, password);
         const idToken = await credential.user.getIdToken(true);
-        const payload = await authRequest<{ token: string; user: UserProfile }>('/auth/firebase', {
-          method: 'POST',
-          body: JSON.stringify({ idToken }),
-        });
-        applyAuth(payload);
+        let payload: { token: string; user: UserProfile };
+        try {
+          payload = await authRequest<{ token: string; user: UserProfile }>('/auth/firebase', {
+            method: 'POST',
+            body: JSON.stringify({ idToken }),
+          });
+          applyAuth(payload);
+        } catch (error) {
+          if (!isBackendUnreachable(error)) throw error;
+          payload = firebaseFallbackPayload(credential.user);
+          setToken(payload.token);
+          setUser(payload.user);
+          ensureInstitutionRoom(payload.user);
+          persistFallbackSession(remember, payload);
+        }
+        return payload.user;
       } catch (error) {
         throw authError(error, 'Login failed');
       }
@@ -330,7 +437,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const loginWithGoogle = useCallback(
-    async (role: Role, remember: boolean, organizationName?: string) => {
+    async (role: Role | undefined, remember: boolean, organizationName?: string) => {
       try {
         const firebaseAuth = requireFirebaseAuth();
         const provider = new GoogleAuthProvider();
@@ -338,16 +445,71 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await setPersistence(firebaseAuth, remember ? browserLocalPersistence : browserSessionPersistence);
         const credential = await signInWithPopup(firebaseAuth, provider);
         const idToken = await credential.user.getIdToken(true);
-        const payload = await authRequest<{ token: string; user: UserProfile }>('/auth/firebase', {
-          method: 'POST',
-          body: JSON.stringify({ idToken, role, institutionName: organizationName }),
-        });
-        applyAuth(payload);
+        let payload: { token: string; user: UserProfile };
+        try {
+          payload = await authRequest<{ token: string; user: UserProfile }>('/auth/firebase', {
+            method: 'POST',
+            body: JSON.stringify({ idToken, role, institutionName: organizationName }),
+          });
+          applyAuth(payload);
+        } catch (error) {
+          if (!isBackendUnreachable(error)) throw error;
+          payload = firebaseFallbackPayload(credential.user, role, organizationName);
+          setToken(payload.token);
+          setUser(payload.user);
+          ensureInstitutionRoom(payload.user);
+          persistFallbackSession(remember, payload);
+        }
+        return payload.user;
       } catch (error) {
         throw authError(error, 'Google login failed');
       }
     },
     [applyAuth]
+  );
+
+  const updateProfile = useCallback(
+    async ({ name, role, organizationName, phone }: ProfileInput) => {
+      if (!user || !token) throw new Error('You must be logged in to save your profile.');
+      const nextUser: UserProfile = {
+        ...user,
+        name: name.trim(),
+        role,
+        institutionName: organizationName?.trim(),
+        organizationName: organizationName?.trim(),
+        phone: phone?.trim(),
+      };
+
+      try {
+        if (!token.startsWith('local-demo-token-')) {
+          const payload = await authRequest<{ token: string; user: UserProfile }>('/users/profile', {
+            method: 'POST',
+            body: JSON.stringify({
+              name: nextUser.name,
+              role,
+              institutionName: nextUser.organizationName,
+              phone: nextUser.phone,
+            }),
+          }, token);
+          setToken(payload.token);
+          setUser(payload.user);
+          persistCurrentSession(payload.token, payload.user);
+          updateLocalProfiles(payload.user);
+          ensureInstitutionRoom(payload.user);
+          return payload.user;
+        }
+      } catch (error) {
+        if (!isBackendUnreachable(error)) throw authError(error, 'Could not save profile');
+      }
+
+      setToken(token);
+      setUser(nextUser);
+      persistCurrentSession(token, nextUser);
+      updateLocalProfiles(nextUser);
+      ensureInstitutionRoom(nextUser);
+      return nextUser;
+    },
+    [token, user]
   );
 
   const logout = useCallback(async () => {
@@ -373,8 +535,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [applyAuth, token, user?.role]);
 
   const value = useMemo(
-    () => ({ user, token, loading, signup, login, loginWithGoogle, logout, resetPassword, refreshEmailVerification }),
-    [user, token, loading, signup, login, loginWithGoogle, logout, resetPassword, refreshEmailVerification]
+    () => ({ user, token, loading, signup, login, loginWithGoogle, updateProfile, logout, resetPassword, refreshEmailVerification }),
+    [user, token, loading, signup, login, loginWithGoogle, updateProfile, logout, resetPassword, refreshEmailVerification]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -20,21 +20,13 @@ function getErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
 }
 
-function orgLabel(role: Role) {
-  if (role === 'ngo') return 'NGO name';
-  if (role === 'recycler') return 'Recycler name';
-  return 'Institution name';
-}
-
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { login, loginWithGoogle, user } = useAuth();
+  const { login, loginWithGoogle } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [remember, setRemember] = useState(true);
-  const [googleRole, setGoogleRole] = useState<Role>('institution');
-  const [organizationName, setOrganizationName] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
 
@@ -43,8 +35,8 @@ function LoginForm() {
     setLoading(true);
     setError(undefined);
     try {
-      await login(email, password, remember);
-      router.replace(searchParams.get('next') || dashboardByRole[user?.role || 'institution']);
+      const loggedInUser = await login(email, password, remember);
+      router.replace(searchParams.get('next') || dashboardByRole[loggedInUser.role]);
     } catch (err: unknown) {
       setError(getErrorMessage(err, 'Login failed'));
     } finally {
@@ -61,9 +53,8 @@ function LoginForm() {
     setLoading(true);
     setError(undefined);
     try {
-      if (!organizationName.trim()) throw new Error(`${orgLabel(googleRole)} is required`);
-      await loginWithGoogle(googleRole, remember, organizationName);
-      router.replace(searchParams.get('next') || dashboardByRole[googleRole]);
+      const googleUser = await loginWithGoogle(undefined, remember);
+      router.replace(searchParams.get('next') || dashboardByRole[googleUser.role]);
     } catch (err: unknown) {
       setError(getErrorMessage(err, 'Google login failed'));
     } finally {
@@ -106,18 +97,6 @@ function LoginForm() {
           <p className="font-black uppercase text-[var(--violet)]">One-click access</p>
           <h2 className="mt-2 text-2xl font-black uppercase">Google Login</h2>
         </div>
-        <label className="block space-y-2">
-          <span className="text-sm font-black uppercase">Role for first login</span>
-          <select className="neo-input" value={googleRole} onChange={(event) => setGoogleRole(event.target.value as Role)}>
-            <option value="institution">Institution</option>
-            <option value="recycler">Recycler</option>
-            <option value="ngo">NGO</option>
-          </select>
-        </label>
-        <label className="block space-y-2">
-          <span className="text-sm font-black uppercase">{orgLabel(googleRole)}</span>
-          <input className="neo-input" value={organizationName} onChange={(event) => setOrganizationName(event.target.value)} placeholder={orgLabel(googleRole)} />
-        </label>
         <button className="neo-button w-full bg-[var(--yellow)]" onClick={google} disabled={loading}>
           {loading ? <Loader2 className="animate-spin" size={18} /> : <Sparkles size={18} />}
           Continue with Google

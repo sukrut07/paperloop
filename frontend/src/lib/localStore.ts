@@ -18,11 +18,12 @@ import type {
   UserProfile,
   VerificationRecord,
 } from './types';
-import { demoBatches, demoLogs, demoRecyclerMatches, demoShipmentHistory } from './demo';
+import { demoBatches, demoLogs, demoRecyclerMatches } from './demo';
 
 const BATCHES_KEY = 'paperloop:v3:batches';
 const LOGS_KEY = 'paperloop:v3:logs';
 const ROOMS_KEY = 'paperloop:v3:rooms';
+const CUSTOM_RECYCLERS_KEY = 'paperloop:v3:custom-recyclers';
 const ROLE_KEY = 'paperloop:role';
 
 function canUseStorage() {
@@ -86,6 +87,27 @@ function createRoomNotification(room: Room, title: string, message: string): Roo
   };
 }
 
+function normalizeMemberValue(value?: unknown) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function sameRoomMember(a: string | RoomMember, b: string | RoomMember) {
+  const aRole = normalizeMemberValue(typeof a === 'string' ? 'institution' : a.role);
+  const bRole = normalizeMemberValue(typeof b === 'string' ? 'institution' : b.role);
+  const aName = normalizeMemberValue(typeof a === 'string' ? a : a.name);
+  const bName = normalizeMemberValue(typeof b === 'string' ? b : b.name);
+  const aEmail = normalizeMemberValue(typeof a === 'string' ? '' : a.email);
+  const bEmail = normalizeMemberValue(typeof b === 'string' ? '' : b.email);
+  const aId = normalizeMemberValue(typeof a === 'string' ? a : a.id);
+  const bId = normalizeMemberValue(typeof b === 'string' ? b : b.id);
+
+  return Boolean((aId && aId === bId) || (aEmail && aEmail === bEmail) || (aRole && aRole === bRole && aName && aName === bName));
+}
+
+function hasRoomMember(members: Array<string | RoomMember>, member: string | RoomMember) {
+  return members.some((item) => sameRoomMember(item, member));
+}
+
 export function getLocalRole() {
   if (!canUseStorage()) return 'institution';
   const role = window.localStorage.getItem(ROLE_KEY) || 'institution';
@@ -138,6 +160,18 @@ export function getLocalRooms() {
 
 export function getLocalRoom(code: string) {
   return getLocalRooms().find((room) => room.code === code);
+}
+
+export function deleteLocalRoom(code: string) {
+  const rooms = getLocalRooms();
+  const room = rooms.find((item) => item.code === code);
+  if (!room) throw new Error('Room not found');
+  writeJson(
+    ROOMS_KEY,
+    rooms.filter((item) => item.code !== code)
+  );
+  saveLocalBatches(getLocalBatches().filter((batch) => batch.roomCode !== code));
+  return { ok: true, code };
 }
 
 function updateLocalRoom(code: string, updater: (room: Room) => Room) {
@@ -249,7 +283,7 @@ export function joinLocalRoom(payload: { code: string; userUid?: string; memberN
     email: payload.email || `${(payload.memberName || payload.userUid || 'guest').toLowerCase().replace(/\s+/g, '.')}@paperloop.local`,
     phone: '+91 90000 00000',
   };
-  if (!room.members.some((item) => (typeof item === 'string' ? item : item.id) === member.id)) room.members.push(member);
+  if (!hasRoomMember(room.members, member)) room.members.push(member);
   writeJson(ROOMS_KEY, rooms);
   return room;
 }
@@ -373,7 +407,7 @@ export function addLocalRoomMember(code: string, member: string, method: 'email'
   };
 
   return updateLocalRoom(code, (room) => {
-    const alreadyMember = room.members.some((item) => (typeof item === 'string' ? item : item.email) === structuredMember.email);
+    const alreadyMember = hasRoomMember(room.members, structuredMember);
     const notification = createRoomNotification(
       room,
       'Member invited',
@@ -435,6 +469,7 @@ export function selectLocalRecycler(code: string, recycler: RecyclerMatch) {
     id: recycler.id,
     name: recycler.name,
     role: 'recycler',
+    email: recycler.email || `${recycler.id}@paperloop.recycler`,
     phone: recycler.phone,
     address: recycler.address,
     rating: recycler.rating,
@@ -454,7 +489,13 @@ export function selectLocalRecycler(code: string, recycler: RecyclerMatch) {
       recyclerResponse: 'pending',
       selectedRecyclerId: recycler.id,
       selectedRecycler: recyclerPartner,
-      members: room.members.some((item) => (typeof item === 'string' ? item : item.id) === recycler.id)
+      members: hasRoomMember(room.members, {
+        id: recycler.id,
+        name: recycler.name,
+        role: 'recycler',
+        email: recycler.email || `${recycler.id}@paperloop.recycler`,
+        phone: recycler.phone,
+      })
         ? room.members
         : [
             ...room.members,
@@ -462,7 +503,7 @@ export function selectLocalRecycler(code: string, recycler: RecyclerMatch) {
               id: recycler.id,
               name: recycler.name,
               role: 'recycler',
-              email: `${recycler.id}@paperloop.recycler`,
+              email: recycler.email || `${recycler.id}@paperloop.recycler`,
               phone: recycler.phone,
             },
           ],
@@ -531,6 +572,27 @@ export function updateLocalRoomShipment(
               email: `${update.actor.toLowerCase().replace(/\s+/g, '.')}@paperloop.ngo`,
             }
           : room.selectedNgo,
+      members:
+        update.role === 'ngo' || update.role === 'recycler'
+          ? hasRoomMember(room.members, {
+              id: createId(update.role),
+              name: update.actor,
+              role: update.role,
+              email: `${update.actor.toLowerCase().replace(/\s+/g, '.')}@paperloop.local`,
+              phone: update.role === 'recycler' ? room.selectedRecycler?.phone : room.selectedNgo?.phone,
+            })
+            ? room.members
+            : [
+                ...room.members,
+                {
+                  id: createId(update.role),
+                  name: update.actor,
+                  role: update.role,
+                  email: `${update.actor.toLowerCase().replace(/\s+/g, '.')}@paperloop.local`,
+                  phone: update.role === 'recycler' ? room.selectedRecycler?.phone : room.selectedNgo?.phone,
+                },
+              ]
+          : room.members,
       timeline: [
         ...(room.timeline || []),
         {
@@ -710,10 +772,121 @@ export function addLocalProof(params: {
   return batch;
 }
 
-export function getLocalRecyclerMatches(_location?: Room['pickupLocation'], minKm = 5, maxKm = 20): RecyclerMatch[] {
-  return demoRecyclerMatches.filter((recycler) => recycler.distanceKm >= minKm && recycler.distanceKm <= maxKm);
+const alandiRecyclerMatches: RecyclerMatch[] = [
+  {
+    id: 'recycler-alandi-recovery',
+    name: 'Alandi Paper Recovery Hub',
+    contactName: 'Nikhil Jadhav',
+    rating: 4.7,
+    distanceKm: 5.2,
+    phone: '+91 98765 21430',
+    email: 'pickup@alandirecovery.example',
+    capacityKgPerDay: 700,
+    address: 'Alandi-Markal Road, Alandi',
+  },
+  {
+    id: 'recycler-moshi-eco',
+    name: 'Moshi Eco Paper Works',
+    contactName: 'Priya Kadam',
+    rating: 4.6,
+    distanceKm: 6.8,
+    phone: '+91 98220 77114',
+    email: 'ops@moshiecopaper.example',
+    capacityKgPerDay: 850,
+    address: 'Moshi, Pimpri-Chinchwad',
+  },
+  {
+    id: 'recycler-chikhali-green',
+    name: 'Chikhali Green Recycling',
+    contactName: 'Rahul Bhosale',
+    rating: 4.5,
+    distanceKm: 8.4,
+    phone: '+91 99602 45118',
+    email: 'desk@chikhaligreen.example',
+    capacityKgPerDay: 650,
+    address: 'Chikhali, Pimpri-Chinchwad',
+  },
+  {
+    id: 'recycler-bhosari-paper',
+    name: 'Bhosari Paper Recyclers',
+    contactName: 'Meera Kulkarni',
+    rating: 4.4,
+    distanceKm: 11.6,
+    phone: '+91 98900 31425',
+    email: 'contact@bhosaripaper.example',
+    capacityKgPerDay: 1100,
+    address: 'Bhosari MIDC, Pune',
+  },
+];
+
+function recyclerMatchesForLocation(location?: Room['pickupLocation']) {
+  const address = location?.address?.toLowerCase() || '';
+  if (address.includes('alandi')) return alandiRecyclerMatches;
+  return demoRecyclerMatches;
+}
+
+export function getLocalRecyclerMatches(location?: Room['pickupLocation'], minKm = 5, maxKm = 20): RecyclerMatch[] {
+  const custom = readJson<RecyclerMatch[]>(CUSTOM_RECYCLERS_KEY, []);
+  return [...recyclerMatchesForLocation(location), ...custom]
+    .filter((recycler) => recycler.distanceKm >= minKm && recycler.distanceKm <= maxKm)
+    .sort((a, b) => a.distanceKm - b.distanceKm);
+}
+
+export function registerLocalRecycler(payload: {
+  enterpriseName: string;
+  contactName: string;
+  address: string;
+  phone: string;
+  email: string;
+  capacityKgPerDay?: number;
+  notes?: string;
+}) {
+  const existing = readJson<RecyclerMatch[]>(CUSTOM_RECYCLERS_KEY, []);
+  const recycler: RecyclerMatch = {
+    id: createId('custom-recycler'),
+    name: payload.enterpriseName,
+    contactName: payload.contactName,
+    rating: 4.5,
+    distanceKm: 5,
+    phone: payload.phone,
+    email: payload.email,
+    capacityKgPerDay: payload.capacityKgPerDay || 500,
+    address: payload.address,
+    isCustom: true,
+    notes: payload.notes,
+  };
+  writeJson(CUSTOM_RECYCLERS_KEY, [recycler, ...existing]);
+  return recycler;
 }
 
 export function getLocalShipmentHistory(): ShipmentHistoryItem[] {
-  return demoShipmentHistory;
+  const rooms = getLocalRooms().filter((room) => {
+    const status = room.shipmentStatus || 'Created';
+    return status !== 'Created' && status !== 'Rejected';
+  });
+  const actualHistory = rooms.map((room) => {
+    const roomBatches = getLocalBatches().filter((batch) => batch.roomCode === room.code);
+    const deliveryDoc = [...(room.documents || [])].reverse().find((doc) => doc.ownerRole === 'ngo' || doc.kind === 'delivery-proof');
+    const ngoMember = room.members.find((member) => typeof member !== 'string' && member.role === 'ngo');
+    return {
+      id: `history-${room.code}`,
+      roomName: room.name,
+      shipmentName: room.shipmentTitle || room.shipmentName || room.name,
+      recyclerDetails: room.selectedRecycler
+        ? `${room.selectedRecycler.name} · ${room.selectedRecycler.address || 'location saved'} · ${room.selectedRecycler.rating || 'custom'} rating`
+        : 'Recycler details stored in room',
+      ngoDetails: room.selectedNgo
+        ? `${room.selectedNgo.name} · ${room.selectedNgo.phone || 'phone pending'}`
+        : ngoMember && typeof ngoMember !== 'string'
+          ? `${ngoMember.name} · ${ngoMember.email}`
+          : 'NGO details stored in room',
+      totalWeight: roomBatches.reduce((sum, batch) => sum + batch.weight, 0) || room.estimatedWeight || 0,
+      deliveryProof: deliveryDoc?.url || 'Room delivery proof pending',
+      verificationSummary: deliveryDoc?.verification
+        ? `Verified by ${deliveryDoc.verification.verifiedBy} on ${deliveryDoc.verification.verifiedAt.slice(0, 10)}`
+        : `${formatTrackingStatus(room.shipmentStatus || 'Created')} in room ${room.code}`,
+      completedAt: room.updatedAt || room.createdAt || new Date().toISOString(),
+    };
+  });
+  return actualHistory.sort((a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime());
 }

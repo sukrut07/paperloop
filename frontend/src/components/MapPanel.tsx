@@ -2,14 +2,16 @@ import { MapPinned, Navigation } from 'lucide-react';
 
 export function MapPanel({
   address = 'Mumbai, Maharashtra',
+  searchQuery,
   title = 'Nearby pickups',
   heightClassName = 'h-[420px]',
 }: {
   address?: string;
+  searchQuery?: string;
   title?: string;
   heightClassName?: string;
 }) {
-  const query = encodeURIComponent(address);
+  const query = encodeURIComponent(searchQuery || address);
   const src = `https://www.google.com/maps?q=${query}&output=embed`;
 
   return (

@@ -1,14 +1,44 @@
 import { Request, Response } from 'express';
 import { User, UserRole } from '../models';
 import { AuthenticatedRequest } from '../middleware/authMiddleware';
+import { signJwt } from '../utils/jwt';
+
+const roles: UserRole[] = ['institution', 'recycler', 'ngo', 'admin'];
+
+function authResponse(user: any) {
+  const token = signJwt({
+    sub: String(user._id),
+    uid: user.uid,
+    email: user.email,
+    role: user.role,
+    isVerified: true,
+  });
+
+  return {
+    token,
+    user: {
+      id: String(user._id),
+      uid: user.uid,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      isVerified: true,
+      institutionName: user.institutionName,
+      organizationName: user.institutionName,
+      phone: user.phone,
+      createdAt: user.createdAt,
+    },
+  };
+}
 
 export const upsertProfile = async (req: AuthenticatedRequest, res: Response) => {
   try {
     if (!req.authUser) return res.status(401).json({ error: 'Authentication required' });
-    const { name, phone, institutionName, location } = req.body;
+    const { name, phone, institutionName, location, role } = req.body;
     if (!name) {
       return res.status(400).json({ error: 'name is required' });
     }
+    const nextRole = roles.includes(role) && (req.authUser.role === 'admin' || role !== 'admin') ? role : req.authUser.role;
 
     const profile = await User.findOneAndUpdate(
       { _id: req.authUser._id },
@@ -17,11 +47,12 @@ export const upsertProfile = async (req: AuthenticatedRequest, res: Response) =>
         phone,
         institutionName,
         location,
+        role: nextRole,
       },
       { upsert: true, new: true, setDefaultsOnInsert: true }
     );
 
-    return res.json(profile);
+    return res.json(authResponse(profile));
   } catch (error: any) {
     return res.status(500).json({ error: error.message });
   }

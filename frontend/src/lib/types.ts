@@ -197,11 +197,15 @@ export interface Room {
 export interface RecyclerMatch {
   id: string;
   name: string;
+  contactName?: string;
   rating: number;
   distanceKm: number;
   phone: string;
+  email?: string;
   capacityKgPerDay: number;
   address: string;
+  isCustom?: boolean;
+  notes?: string;
 }
 
 export interface ShipmentHistoryItem {

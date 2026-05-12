@@ -1,18 +1,19 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { BookOpenCheck, Clock3, History, Map, Plus, Truck, Users, X } from 'lucide-react';
+import { BookOpenCheck, Clock3, History, Map, Plus, Trash2, Truck, Users, X } from 'lucide-react';
 import { MapPanel } from '@/components/MapPanel';
 import { StatCard } from '@/components/StatCard';
 import { StatusBadge } from '@/components/StatusBadge';
 import { RoleGate } from '@/components/RoleGate';
 import { api } from '@/lib/api';
+import { uniqueRoomMembers } from '@/lib/roomMembers';
 import { isRoomDelivered } from '@/lib/shipmentFlow';
 import type { Batch, RecyclerMatch, Room, ShipmentHistoryItem } from '@/lib/types';
 
 function memberCount(room: Room) {
-  return room.members.length;
+  return uniqueRoomMembers(room).length;
 }
 
 export default function InstitutionDashboard() {
@@ -22,13 +23,34 @@ export default function InstitutionDashboard() {
   const [recyclers, setRecyclers] = useState<RecyclerMatch[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [mapOpen, setMapOpen] = useState(false);
+  const [deletingRoom, setDeletingRoom] = useState<string | null>(null);
 
-  useEffect(() => {
+  const loadDashboard = useCallback(() => {
     api.listBatches().then(setBatches);
     api.ensurePrimaryRoom().then(() => api.listRooms().then(setRooms));
     api.shipmentHistory().then(setHistory);
     api.recyclerMatches().then(setRecyclers);
   }, []);
+
+  useEffect(() => {
+    loadDashboard();
+  }, [loadDashboard]);
+
+  async function deleteRoom(room: Room) {
+    const confirmed = window.confirm(`Delete room ${room.code} (${room.name})? This removes the room and its batches from the dashboard.`);
+    if (!confirmed) return;
+    setDeletingRoom(room.code);
+    try {
+      await api.deleteRoom(room.code);
+      await Promise.all([
+        api.listRooms().then(setRooms),
+        api.listBatches().then(setBatches),
+        api.shipmentHistory().then(setHistory),
+      ]);
+    } finally {
+      setDeletingRoom(null);
+    }
+  }
 
   const stats = useMemo(() => {
     const totalWeight = rooms.reduce((sum, room) => sum + (room.estimatedWeight || 0), 0) || batches.reduce((sum, batch) => sum + batch.weight, 0);
@@ -68,21 +90,33 @@ export default function InstitutionDashboard() {
           </div>
           <div className="grid gap-4 md:grid-cols-2">
             {rooms.map((room) => (
-              <Link key={room.code} href={`/dashboard/room/${room.code}`} className="neo-card block bg-white p-5 transition hover:-translate-y-1">
+              <div key={room.code} className="neo-card bg-white p-5 transition hover:-translate-y-1">
                 <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
+                  <Link href={`/dashboard/room/${room.code}`} className="min-w-0 flex-1">
                     <p className="text-sm font-black uppercase text-[var(--coral)]">Room {room.code}</p>
                     <p className="mt-2 text-2xl font-black">{room.name}</p>
                     <p className="mt-1 font-bold opacity-70">{room.shipmentTitle} · {room.paperType} · {room.estimatedWeight} kg</p>
+                  </Link>
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <StatusBadge status={room.shipmentStatus || 'Created'} />
+                    <button
+                      className="neo-button bg-[var(--coral)] px-3 py-2 text-xs"
+                      type="button"
+                      onClick={() => deleteRoom(room)}
+                      disabled={deletingRoom === room.code}
+                      aria-label={`Delete room ${room.code}`}
+                    >
+                      <Trash2 size={15} />
+                      {deletingRoom === room.code ? 'Deleting' : 'Delete'}
+                    </button>
                   </div>
-                  <StatusBadge status={room.shipmentStatus || 'Created'} />
                 </div>
-                <div className="mt-4 grid gap-2 sm:grid-cols-3">
-                  <span className="rounded-md border-2 border-black bg-[var(--paper)] px-3 py-2 text-sm font-black">{memberCount(room)} members</span>
-                  <span className="rounded-md border-2 border-black bg-[var(--paper)] px-3 py-2 text-sm font-black">{room.batches.length} batches</span>
-                  <span className="rounded-md border-2 border-black bg-[var(--paper)] px-3 py-2 text-sm font-black"><Clock3 className="inline" size={14} /> {room.pickupDeadline}</span>
-                </div>
-              </Link>
+                <Link href={`/dashboard/room/${room.code}`} className="mt-4 grid gap-2 sm:grid-cols-3">
+                    <span className="rounded-md border-2 border-black bg-[var(--paper)] px-3 py-2 text-sm font-black">{memberCount(room)} members</span>
+                    <span className="rounded-md border-2 border-black bg-[var(--paper)] px-3 py-2 text-sm font-black">{room.batches.length} batches</span>
+                    <span className="rounded-md border-2 border-black bg-[var(--paper)] px-3 py-2 text-sm font-black"><Clock3 className="inline" size={14} /> {room.pickupDeadline}</span>
+                  </Link>
+              </div>
             ))}
           </div>
         </section>
@@ -131,7 +165,12 @@ export default function InstitutionDashboard() {
                 <button className="neo-button bg-white p-2" onClick={() => setMapOpen(false)} aria-label="Close map"><X size={18} /></button>
               </div>
               <div className="grid gap-5 lg:grid-cols-[1fr_360px]">
-                <MapPanel address={rooms[0]?.pickupLocation?.address || 'Pune, Maharashtra'} title="Recycler finder map" heightClassName="h-[360px]" />
+                <MapPanel
+                  address={rooms[0]?.pickupLocation?.address || 'Pune, Maharashtra'}
+                  searchQuery={`paper recycling centers near ${rooms[0]?.pickupLocation?.address || 'Pune, Maharashtra'}`}
+                  title="Recycler finder map"
+                  heightClassName="h-[360px]"
+                />
                 <div className="space-y-3">
                   {recyclers.map((recycler) => (
                     <div key={recycler.id} className="rounded-lg border-[3px] border-black bg-[var(--paper)] p-4">

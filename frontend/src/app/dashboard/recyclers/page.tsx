@@ -2,15 +2,16 @@
 
 import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { CheckSquare, DoorOpen, Factory, Loader2, Map, PackageCheck, Phone, RefreshCw, Star, Truck, Users, X } from 'lucide-react';
+import { CheckSquare, DoorOpen, Factory, Loader2, Mail, Map, MapPin, PackageCheck, Phone, Plus, RefreshCw, Star, Truck, Users, X } from 'lucide-react';
 import { MapPanel } from '@/components/MapPanel';
 import ProgressTracker from '@/components/ProgressTracker';
 import { RoleGate } from '@/components/RoleGate';
 import { StatusBadge } from '@/components/StatusBadge';
 import { api } from '@/lib/api';
+import { uniqueRoomMembers } from '@/lib/roomMembers';
 import { isRoomDelivered } from '@/lib/shipmentFlow';
 import { useAuth } from '@/lib/auth';
-import type { RecyclerMatch, Room, TrackingStatus } from '@/lib/types';
+import type { RecyclerMatch, Room, RoomMember, TrackingStatus, UserProfile } from '@/lib/types';
 
 const recyclerWorkflow: Array<{ status: TrackingStatus; label: string; message: string }> = [
   { status: 'Accepted', label: 'Accept shipment', message: 'Recycler accepted the shipment request.' },
@@ -26,6 +27,32 @@ const recyclerWorkflow: Array<{ status: TrackingStatus; label: string; message: 
 
 function workflowIndex(status: TrackingStatus) {
   return recyclerWorkflow.findIndex((step) => step.status === status);
+}
+
+function getActiveRoomsByRecency(rooms: Room[]) {
+  return rooms
+    .filter((room) => !isRoomDelivered(room.shipmentStatus))
+    .sort((a, b) => {
+      const bTime = new Date(b.updatedAt || b.createdAt || 0).getTime();
+      const aTime = new Date(a.updatedAt || a.createdAt || 0).getTime();
+      return bTime - aTime;
+    });
+}
+
+function isRoomParticipant(room: Room, user?: UserProfile | null) {
+  if (!user) return false;
+  return room.members.some((member) => {
+    if (typeof member === 'string') return member === user.uid || member === user.email || member === user.name;
+    return member.id === user.uid || member.email === user.email || member.name === user.name;
+  });
+}
+
+function recyclerDisplayName(user?: UserProfile | null) {
+  return user?.organizationName || user?.institutionName || user?.name || 'Recycler';
+}
+
+function roomMemberRole(member: string | RoomMember) {
+  return typeof member === 'string' ? 'member' : member.role;
 }
 
 function RecyclerTrackingChecklist({
@@ -112,7 +139,7 @@ function RoomCard({ room, children, showOpenRoom = true }: { room: Room; childre
         <StatusBadge status={room.shipmentStatus || 'Created'} />
       </div>
       <div className="mt-4 grid gap-2 sm:grid-cols-3">
-        <span className="rounded-md border-2 border-black bg-[var(--paper)] px-3 py-2 text-sm font-black">{room.members.length} members</span>
+        <span className="rounded-md border-2 border-black bg-[var(--paper)] px-3 py-2 text-sm font-black">{uniqueRoomMembers(room).length} members</span>
         <span className="rounded-md border-2 border-black bg-[var(--paper)] px-3 py-2 text-sm font-black">{room.batches.length} batches</span>
         {showOpenRoom ? (
           <Link href={`/dashboard/room/${room.code}`} className="rounded-md border-2 border-black bg-[var(--paper)] px-3 py-2 text-center text-sm font-black uppercase transition hover:bg-white">
@@ -129,16 +156,19 @@ function RoomCard({ room, children, showOpenRoom = true }: { room: Room; childre
 
 function InstitutionRecyclerFinder({
   matches,
-  activeRooms,
+  activeRoom,
   onOpenMap,
   onConnect,
+  onRegister,
 }: {
   matches: RecyclerMatch[];
-  activeRooms: Room[];
+  activeRoom?: Room;
   onOpenMap: () => void;
   onConnect: (recycler: RecyclerMatch) => void;
+  onRegister: () => void;
 }) {
-  const defaultAddress = activeRooms[0]?.pickupLocation?.address || 'Pune, Maharashtra';
+  const defaultAddress = activeRoom?.pickupLocation?.address || 'Pune, Maharashtra';
+  const nearest = matches[0];
 
   return (
     <div className="space-y-6">
@@ -148,20 +178,51 @@ function InstitutionRecyclerFinder({
           <h1 className="mt-2 text-4xl font-black uppercase md:text-6xl">Recycler Finder</h1>
           <p className="mt-2 max-w-3xl text-lg font-bold">Use the institution pickup location to compare nearby recyclers and send room-specific connect requests.</p>
         </div>
-        <button className="neo-button bg-[var(--cyan)]" onClick={onOpenMap}>
-          <Map size={18} />
-          Open Map
-        </button>
+        <div className="flex flex-wrap gap-3">
+          <button className="neo-button bg-white" onClick={onRegister}>
+            <Plus size={18} />
+            Register Recycler
+          </button>
+          <button className="neo-button bg-[var(--cyan)]" onClick={onOpenMap}>
+            <Map size={18} />
+            Open Map
+          </button>
+        </div>
       </header>
 
+      {nearest ? (
+        <section className="neo-card bg-[var(--green)] p-5">
+          <p className="text-sm font-black uppercase">Nearest recycler for {defaultAddress}</p>
+          <div className="mt-3 grid gap-3 md:grid-cols-[1fr_auto] md:items-center">
+            <div>
+              <p className="text-3xl font-black">{nearest.name}</p>
+              <p className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 font-bold">
+                <span className="flex items-center gap-2"><MapPin size={18} /> {nearest.address} · {nearest.distanceKm} km</span>
+                <span className="flex items-center gap-2"><Phone size={18} /> {nearest.phone}</span>
+                {nearest.email ? <span className="flex items-center gap-2"><Mail size={18} /> {nearest.email}</span> : null}
+              </p>
+              <p className="mt-1 font-bold opacity-70">{nearest.capacityKgPerDay} kg/day capacity{nearest.isCustom ? ' · custom institute recycler' : ''}</p>
+            </div>
+            <button className="neo-button bg-[var(--yellow)]" onClick={() => onConnect(nearest)}>Add To Room</button>
+          </div>
+        </section>
+      ) : null}
+
       <section className="grid gap-5 lg:grid-cols-[1fr_360px]">
-        <MapPanel address={defaultAddress} title="Recycler matching map" heightClassName="h-[420px]" />
+        <MapPanel
+          address={defaultAddress}
+          searchQuery={`paper recycling centers near ${defaultAddress}`}
+          title="Recycler matching map"
+          heightClassName="h-[420px]"
+        />
         <div className="space-y-4">
           {matches.map((recycler) => (
             <div key={recycler.id} className="neo-card bg-white p-5">
               <p className="text-2xl font-black">{recycler.name}</p>
               <p className="mt-2 flex items-center gap-2 font-bold"><Star size={18} /> {recycler.rating} rating · {recycler.distanceKm} km</p>
+              <p className="flex items-center gap-2 font-bold"><MapPin size={18} /> {recycler.address}</p>
               <p className="flex items-center gap-2 font-bold"><Phone size={18} /> {recycler.phone}</p>
+              {recycler.email ? <p className="flex items-center gap-2 font-bold"><Mail size={18} /> {recycler.email}</p> : null}
               <p className="font-bold opacity-70">{recycler.capacityKgPerDay} kg/day capacity</p>
               <button className="neo-button mt-4 w-full bg-[var(--yellow)] text-xs" onClick={() => onConnect(recycler)}>
                 Connect Recycler
@@ -184,11 +245,24 @@ export default function RecyclerDashboardPage() {
   const [joinCode, setJoinCode] = useState('');
   const [joinBusy, setJoinBusy] = useState(false);
   const [joinError, setJoinError] = useState<string>();
+  const [registerOpen, setRegisterOpen] = useState(false);
+  const [customRecycler, setCustomRecycler] = useState({
+    enterpriseName: '',
+    contactName: '',
+    address: '',
+    phone: '',
+    email: '',
+    capacityKgPerDay: 500,
+    notes: '',
+  });
   const { user } = useAuth();
 
   function load() {
-    api.listRooms().then(setRooms);
-    api.recyclerMatches().then(setMatches);
+    api.listRooms().then((nextRooms) => {
+      setRooms(nextRooms);
+      const nextActiveRooms = getActiveRoomsByRecency(nextRooms);
+      api.recyclerMatches(nextActiveRooms[0]?.pickupLocation).then(setMatches);
+    });
   }
 
   useEffect(() => {
@@ -197,64 +271,67 @@ export default function RecyclerDashboardPage() {
     return () => window.clearInterval(interval);
   }, []);
 
-  const activeRooms = useMemo(() => rooms.filter((room) => !isRoomDelivered(room.shipmentStatus)), [rooms]);
-  const defaultAddress = activeRooms[0]?.pickupLocation?.address || 'Pune, Maharashtra';
+  const activeRooms = useMemo(() => getActiveRoomsByRecency(rooms), [rooms]);
+  const activeRoom = activeRooms[0];
+  const defaultAddress = activeRoom?.pickupLocation?.address || 'Pune, Maharashtra';
+  const actorName = recyclerDisplayName(user);
+
+  const joinedRooms = useMemo(
+    () => getActiveRoomsByRecency(rooms.filter((room) => isRoomParticipant(room, user))),
+    [rooms, user]
+  );
 
   const incoming = useMemo(
     () =>
-      rooms.filter(
+      joinedRooms.filter(
         (room) =>
           room.selectedRecycler &&
           room.recyclerResponse !== 'accepted' &&
           !isRoomDelivered(room.shipmentStatus) &&
           ['Created', 'Rejected'].includes(room.shipmentStatus || 'Created')
       ),
-    [rooms]
+    [joinedRooms]
   );
 
-  const availableInstitutionRooms = useMemo(
+  const joinedPendingRooms = useMemo(
     () =>
-      rooms.filter(
-        (room) =>
-          !room.selectedRecycler &&
-          room.recyclerResponse !== 'accepted' &&
-          !isRoomDelivered(room.shipmentStatus) &&
-          ['Created', 'Rejected'].includes(room.shipmentStatus || 'Created')
-      ),
-    [rooms]
+      joinedRooms.filter((room) => {
+        const status = room.shipmentStatus || 'Created';
+        return status === 'Created' && room.recyclerResponse !== 'accepted' && !incoming.some((incomingRoom) => incomingRoom.code === room.code);
+      }),
+    [incoming, joinedRooms]
   );
 
   const acceptedPickups = useMemo(
-    () => rooms.filter((room) => room.recyclerResponse === 'accepted' && ['Accepted', 'PickupStarted'].includes(room.shipmentStatus || 'Created')),
-    [rooms]
+    () => joinedRooms.filter((room) => room.recyclerResponse === 'accepted' && ['Accepted', 'PickupStarted'].includes(room.shipmentStatus || 'Created')),
+    [joinedRooms]
   );
 
   const activeRecycling = useMemo(
     () =>
-      rooms.filter(
+      joinedRooms.filter(
         (room) =>
           room.recyclerResponse === 'accepted' &&
           ['PickedUp', 'InTransit', 'ReceivedAtPlant', 'Processing', 'Recycled', 'BooksProduced'].includes(room.shipmentStatus || 'Created')
       ),
-    [rooms]
+    [joinedRooms]
   );
 
   const deliveries = useMemo(
     () =>
-      rooms.filter((room) =>
+      joinedRooms.filter((room) =>
         ['SentToNGO', 'ReceivedByNGO', 'DistributionStarted', 'Delivered'].includes(room.shipmentStatus || 'Created')
       ),
-    [rooms]
+    [joinedRooms]
   );
 
   async function acceptShipment(room: Room) {
     await api.updateRoomShipment(room.code, {
       status: 'Accepted',
-      actor: user?.organizationName || user?.institutionName || user?.name || room.selectedRecycler?.name || 'Recycler',
+      actor: actorName || room.selectedRecycler?.name || 'Recycler',
       role: 'recycler',
       message: 'Recycler accepted the shipment request after reviewing the pickup terms.',
     });
-    await api.addRoomMember(room.code, user?.email || user?.name || room.selectedRecycler?.name || 'Recycler', 'email');
     setTermsRoom(null);
     setTermsChecks([false, false, false, false]);
     load();
@@ -276,14 +353,24 @@ export default function RecyclerDashboardPage() {
     }
   }
 
+  async function registerRecycler(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const recycler = await api.registerRecycler(customRecycler);
+    setMatches(await api.recyclerMatches(activeRoom?.pickupLocation));
+    setCustomRecycler({ enterpriseName: '', contactName: '', address: '', phone: '', email: '', capacityKgPerDay: 500, notes: '' });
+    setRegisterOpen(false);
+    setConnectRecycler(recycler);
+  }
+
   if (user?.role === 'institution') {
     return (
       <>
         <InstitutionRecyclerFinder
           matches={matches}
-          activeRooms={activeRooms}
+          activeRoom={activeRoom}
           onOpenMap={() => setMapOpen(true)}
           onConnect={(recycler) => setConnectRecycler(recycler)}
+          onRegister={() => setRegisterOpen(true)}
         />
 
         {connectRecycler ? (
@@ -332,12 +419,18 @@ export default function RecyclerDashboardPage() {
                 </button>
               </div>
               <div className="grid gap-5 lg:grid-cols-[1fr_360px]">
-                <MapPanel address={defaultAddress} title="Nearby recyclers" heightClassName="h-[360px]" />
+                <MapPanel
+                  address={defaultAddress}
+                  searchQuery={`paper recycling centers near ${defaultAddress}`}
+                  title="Nearby recyclers"
+                  heightClassName="h-[360px]"
+                />
                 <div className="space-y-3">
                   {matches.map((recycler) => (
                     <div key={recycler.id} className="rounded-lg border-[3px] border-black bg-[var(--paper)] p-4">
                       <p className="text-xl font-black">{recycler.name}</p>
                       <p className="mt-2 flex items-center gap-2 font-bold"><Star size={16} /> {recycler.rating} rating · {recycler.distanceKm} km</p>
+                      <p className="flex items-center gap-2 font-bold"><MapPin size={16} /> {recycler.address}</p>
                       <p className="flex items-center gap-2 font-bold"><Phone size={16} /> {recycler.phone}</p>
                       <button className="neo-button mt-3 w-full bg-[var(--yellow)] text-xs" onClick={() => setConnectRecycler(recycler)}>
                         Connect Recycler
@@ -347,6 +440,35 @@ export default function RecyclerDashboardPage() {
                 </div>
               </div>
             </div>
+          </div>
+        ) : null}
+
+        {registerOpen ? (
+          <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4">
+            <form onSubmit={registerRecycler} className="neo-card max-h-[86vh] w-full max-w-3xl space-y-4 overflow-auto bg-white p-5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-black uppercase text-[var(--coral)]">Custom recycler</p>
+                  <h2 className="text-3xl font-black uppercase">Register Institute Recycler</h2>
+                </div>
+                <button className="neo-button bg-white p-2" type="button" onClick={() => setRegisterOpen(false)} aria-label="Close recycler registration">
+                  <X size={18} />
+                </button>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <input className="neo-input" placeholder="Enterprise name" value={customRecycler.enterpriseName} onChange={(event) => setCustomRecycler((current) => ({ ...current, enterpriseName: event.target.value }))} required />
+                <input className="neo-input" placeholder="Recycler contact name" value={customRecycler.contactName} onChange={(event) => setCustomRecycler((current) => ({ ...current, contactName: event.target.value }))} required />
+                <input className="neo-input" placeholder="Location / address" value={customRecycler.address} onChange={(event) => setCustomRecycler((current) => ({ ...current, address: event.target.value }))} required />
+                <input className="neo-input" placeholder="Phone number" value={customRecycler.phone} onChange={(event) => setCustomRecycler((current) => ({ ...current, phone: event.target.value }))} required />
+                <input className="neo-input" type="email" placeholder="Email ID" value={customRecycler.email} onChange={(event) => setCustomRecycler((current) => ({ ...current, email: event.target.value }))} required />
+                <input className="neo-input" type="number" min={1} placeholder="Capacity kg/day" value={customRecycler.capacityKgPerDay} onChange={(event) => setCustomRecycler((current) => ({ ...current, capacityKgPerDay: Number(event.target.value) }))} />
+                <textarea className="neo-input md:col-span-2" placeholder="Notes, fixed enterprise contract, pickup window, material types" value={customRecycler.notes} onChange={(event) => setCustomRecycler((current) => ({ ...current, notes: event.target.value }))} />
+              </div>
+              <button className="neo-button w-full bg-[var(--yellow)]">
+                <Plus size={18} />
+                Register And Add To Room
+              </button>
+            </form>
           </div>
         ) : null}
       </>
@@ -360,7 +482,7 @@ export default function RecyclerDashboardPage() {
           <div>
             <p className="font-black uppercase text-[var(--coral)]">Recycler Dashboard</p>
             <h1 className="mt-2 text-4xl font-black uppercase md:text-6xl">Room-Based Pickup Flow</h1>
-            <p className="mt-2 max-w-3xl text-lg font-bold">Institution shipment rooms are fetched live here. Join by code, accept pickups, and update the shared room tracker from a checklist.</p>
+            <p className="mt-2 max-w-3xl text-lg font-bold">Shipment rooms are private. Join by code, accept direct institution requests, and update the shared room tracker from a checklist.</p>
           </div>
           <div className="flex flex-wrap gap-3">
             <Link className="neo-button bg-white" href="/room/join">
@@ -378,11 +500,12 @@ export default function RecyclerDashboardPage() {
           </div>
         </header>
 
-        <section className="grid gap-4 md:grid-cols-4">
-          <div className="neo-card bg-[var(--cyan)] p-5"><p className="font-black uppercase">Visible Shipments</p><p className="mt-3 text-4xl font-black">{incoming.length + availableInstitutionRooms.length}</p></div>
+        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+          <div className="neo-card bg-[var(--cyan)] p-5"><p className="font-black uppercase">Joined Rooms</p><p className="mt-3 text-4xl font-black">{joinedRooms.length}</p></div>
+          <div className="neo-card bg-white p-5"><p className="font-black uppercase">Incoming Requests</p><p className="mt-3 text-4xl font-black">{incoming.length}</p></div>
           <div className="neo-card bg-[var(--yellow)] p-5"><p className="font-black uppercase">Accepted Pickups</p><p className="mt-3 text-4xl font-black">{acceptedPickups.length}</p></div>
           <div className="neo-card bg-[var(--green)] p-5"><p className="font-black uppercase">Active Recycling</p><p className="mt-3 text-4xl font-black">{activeRecycling.length}</p></div>
-          <div className="neo-card bg-white p-5"><p className="font-black uppercase">Deliveries</p><p className="mt-3 text-4xl font-black">{deliveries.length}</p></div>
+          <div className="neo-card bg-[var(--paper)] p-5"><p className="font-black uppercase">Deliveries</p><p className="mt-3 text-4xl font-black">{deliveries.length}</p></div>
         </section>
 
         <section className="grid gap-5 lg:grid-cols-[420px_1fr]">
@@ -407,35 +530,29 @@ export default function RecyclerDashboardPage() {
           <div className="neo-card bg-[var(--paper)] p-5">
             <p className="font-black uppercase text-[var(--coral)]">Live data</p>
             <h2 className="mt-1 text-2xl font-black uppercase">Auto-refreshing recycler queue</h2>
-            <p className="mt-2 font-bold opacity-70">This dashboard refreshes every 5 seconds from `/room`, so new institution shipments and room tracking changes appear without jumping pages.</p>
+            <p className="mt-2 font-bold opacity-70">This dashboard refreshes every 5 seconds. Public recycling postings are disabled; room access requires a join code, invite link, or direct recycler request.</p>
             <div className="mt-4 grid gap-3 sm:grid-cols-3">
-              <span className="rounded-lg border-2 border-black bg-white p-3 text-sm font-black">{rooms.length} rooms fetched</span>
-              <span className="rounded-lg border-2 border-black bg-white p-3 text-sm font-black">{availableInstitutionRooms.length} open postings</span>
-              <span className="rounded-lg border-2 border-black bg-white p-3 text-sm font-black">{incoming.length} requests sent</span>
+              <span className="rounded-lg border-2 border-black bg-white p-3 text-sm font-black">{joinedRooms.length} joined rooms</span>
+              <span className="rounded-lg border-2 border-black bg-white p-3 text-sm font-black">0 public postings</span>
+              <span className="rounded-lg border-2 border-black bg-white p-3 text-sm font-black">{incoming.length} direct requests</span>
             </div>
           </div>
         </section>
 
         <section className="space-y-4">
-          <div className="flex items-center gap-2 text-2xl font-black uppercase"><PackageCheck size={22} /> Institution Shipments</div>
+          <div className="flex items-center gap-2 text-2xl font-black uppercase"><DoorOpen size={22} /> Joined Rooms</div>
           <div className="dashboard-room-grid grid gap-4 md:grid-cols-2">
-            {availableInstitutionRooms.length ? availableInstitutionRooms.map((room) => (
+            {joinedPendingRooms.length ? joinedPendingRooms.map((room) => (
               <RoomCard key={room.code} room={room}>
-                <div className="mb-4 rounded-lg border-2 border-black bg-[var(--paper)] p-3">
-                  <p className="font-black uppercase text-[var(--coral)]">Open pickup posting</p>
-                  <p className="mt-1 text-sm font-bold opacity-70">Visible to recyclers from the institution queue. Join the room or accept directly to start pickup tracking.</p>
-                </div>
-                <div className="grid gap-3 md:grid-cols-2">
-                  <Link href={`/room/join?code=${room.code}`} className="neo-button w-full bg-white text-xs">
-                    <DoorOpen size={16} />
-                    Join Room
-                  </Link>
+                <div className="space-y-3 rounded-lg border-2 border-black bg-[var(--paper)] p-3">
+                  <p className="font-black uppercase text-[var(--coral)]">Joined by code</p>
+                  <p className="font-bold opacity-70">You are in this room as a {room.members.find((member) => typeof member !== 'string' && (member.email === user?.email || member.id === user?.uid)) ? roomMemberRole(room.members.find((member) => typeof member !== 'string' && (member.email === user?.email || member.id === user?.uid))!) : 'recycler'}. Accept the pickup when you are ready to start tracking.</p>
                   <button className="neo-button w-full bg-[var(--yellow)] text-xs" onClick={() => setTermsRoom(room)}>
                     Review Terms & Accept
                   </button>
                 </div>
               </RoomCard>
-            )) : <div className="neo-card bg-white p-6 font-black">No open institution shipments right now.</div>}
+            )) : <div className="neo-card bg-white p-6 font-black">No newly joined rooms are waiting for acceptance.</div>}
           </div>
         </section>
 
@@ -451,7 +568,7 @@ export default function RecyclerDashboardPage() {
                   </div>
                 ) : null}
                 <div className="grid gap-3 md:grid-cols-2">
-                  <button className="neo-button w-full bg-[var(--yellow)] text-xs" onClick={() => setTermsRoom(room)}>
+                      <button className="neo-button w-full bg-[var(--yellow)] text-xs" onClick={() => setTermsRoom(room)}>
                     Review Terms & Accept
                   </button>
                   <button
@@ -459,7 +576,7 @@ export default function RecyclerDashboardPage() {
                     onClick={() =>
                       api.updateRoomShipment(room.code, {
                         status: 'Rejected',
-                        actor: user?.organizationName || user?.institutionName || user?.name || 'Recycler',
+                        actor: actorName,
                         role: 'recycler',
                         message: 'Recycler declined the pickup request.',
                       }).then(load)
@@ -481,7 +598,7 @@ export default function RecyclerDashboardPage() {
                 <RoomCard key={room.code} room={room}>
                   <RecyclerTrackingChecklist
                     room={room}
-                    actor={user?.organizationName || user?.institutionName || user?.name || 'Recycler'}
+                    actor={actorName}
                     onUpdated={load}
                   />
                 </RoomCard>
@@ -498,7 +615,7 @@ export default function RecyclerDashboardPage() {
                 <RoomCard key={room.code} room={room}>
                   <RecyclerTrackingChecklist
                     room={room}
-                    actor={user?.organizationName || user?.institutionName || user?.name || 'Recycler'}
+                    actor={actorName}
                     onUpdated={load}
                   />
                 </RoomCard>
@@ -575,7 +692,12 @@ export default function RecyclerDashboardPage() {
                 </button>
               </div>
               <div className="grid gap-5 lg:grid-cols-[1fr_360px]">
-                <MapPanel address={defaultAddress} title="Room-linked pickup map" heightClassName="h-[360px]" />
+                <MapPanel
+                  address={defaultAddress}
+                  searchQuery={`paper recycling centers near ${defaultAddress}`}
+                  title="Room-linked pickup map"
+                  heightClassName="h-[360px]"
+                />
                 <div className="space-y-3">
                   {matches.map((recycler) => (
                     <div key={recycler.id} className="rounded-lg border-[3px] border-black bg-[var(--paper)] p-4">

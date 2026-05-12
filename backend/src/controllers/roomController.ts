@@ -54,6 +54,27 @@ function notificationFor(room: any, title: string, message: string) {
   };
 }
 
+function normalizeMemberValue(value?: unknown) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function sameRoomMember(a: any, b: any) {
+  const aRole = normalizeMemberValue(typeof a === 'string' ? 'institution' : a.role);
+  const bRole = normalizeMemberValue(typeof b === 'string' ? 'institution' : b.role);
+  const aName = normalizeMemberValue(typeof a === 'string' ? a : a.name);
+  const bName = normalizeMemberValue(typeof b === 'string' ? b : b.name);
+  const aEmail = normalizeMemberValue(typeof a === 'string' ? '' : a.email);
+  const bEmail = normalizeMemberValue(typeof b === 'string' ? '' : b.email);
+  const aId = normalizeMemberValue(typeof a === 'string' ? a : a.id);
+  const bId = normalizeMemberValue(typeof b === 'string' ? b : b.id);
+
+  return Boolean((aId && aId === bId) || (aEmail && aEmail === bEmail) || (aRole && aRole === bRole && aName && aName === bName));
+}
+
+function hasRoomMember(members: any[], member: any) {
+  return members.some((item) => sameRoomMember(item, member));
+}
+
 async function generateRoomCode() {
   for (let attempt = 0; attempt < 20; attempt += 1) {
     const code = Math.floor(100000 + Math.random() * 900000).toString();
@@ -137,7 +158,7 @@ export const joinRoom = async (req: AuthenticatedRequest, res: Response) => {
 
     const member = memberFromUser(req);
     const members = room.members || [];
-    if (!members.some((item: any) => (typeof item === 'string' ? item : item.id) === member.id)) {
+    if (!hasRoomMember(members, member)) {
       room.members = [...members, member as any];
       room.timeline = [
         ...((room.timeline || []) as any[]),
@@ -174,9 +195,34 @@ export const listRooms = async (req: AuthenticatedRequest, res: Response) => {
     const filter: Record<string, unknown> = {};
     if (req.authUser?.role === 'institution' && req.authUser?._id) {
       filter.institutionId = req.authUser._id;
+    } else if ((req.authUser?.role === 'recycler' || req.authUser?.role === 'ngo') && req.authUser?.uid) {
+      filter.$or = [
+        { 'members.id': req.authUser.uid },
+        { 'members.email': req.authUser.email },
+        { selectedRecyclerId: req.authUser.uid },
+        { selectedNgoId: req.authUser.uid },
+      ];
     }
     const rooms = await Room.find(filter).sort({ updatedAt: -1 }).limit(100);
     return res.json(rooms);
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+};
+
+export const deleteRoom = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const room = await Room.findOne({ code: req.params.code });
+    if (!room) return res.status(404).json({ error: 'Room not found' });
+
+    const isOwner = String(room.institutionId) === String(req.authUser?._id);
+    const isAdmin = req.authUser?.role === 'admin';
+    if (!isOwner && !isAdmin) return res.status(403).json({ error: 'Only the room institution or an admin can delete this room' });
+
+    await Batch.deleteMany({ roomCode: room.code });
+    await Room.deleteOne({ code: room.code });
+
+    return res.json({ ok: true, code: room.code });
   } catch (error: any) {
     return res.status(500).json({ error: error.message });
   }
@@ -200,7 +246,7 @@ export const addRoomMember = async (req: AuthenticatedRequest, res: Response) =>
     };
     const notification = notificationFor(room, 'Room invite added', `${roomActor(req)} invited ${member} to ${room.name}.`);
 
-    if (!room.members.some((item: any) => (typeof item === 'string' ? item : item.id) === structuredMember.id)) {
+    if (!hasRoomMember(room.members as any[], structuredMember)) {
       room.members = [...(room.members || []), structuredMember as any];
     }
     room.invitedPeople = Array.from(new Set([...(room.invitedPeople || []), String(member)]));
@@ -244,6 +290,19 @@ export const addRoomMessage = async (req: AuthenticatedRequest, res: Response) =
         createdAt: new Date().toISOString(),
       },
     ] as any;
+    if (kind === 'announcement') {
+      room.timeline = [
+        ...((room.timeline || []) as any[]),
+        {
+          id: createId('timeline'),
+          actor: author || roomActor(req),
+          role: req.authUser?.role || 'institution',
+          kind: 'announcement',
+          message: body,
+          createdAt: new Date().toISOString(),
+        },
+      ] as any;
+    }
     await room.save();
 
     return res.json(room);
@@ -272,6 +331,18 @@ export const selectRecycler = async (req: AuthenticatedRequest, res: Response) =
     room.selectedRecycler = recycler as any;
     room.selectedRecyclerId = recycler.id;
     room.recyclerResponse = 'pending';
+    if (!hasRoomMember(room.members as any[], recycler)) {
+      room.members = [
+        ...(room.members || []),
+        {
+          id: recycler.id,
+          name: recycler.name,
+          role: 'recycler',
+          email: recycler.email || `${recycler.id}@paperloop.recycler`,
+          phone: recycler.phone,
+        } as any,
+      ];
+    }
     room.timeline = [
       ...((room.timeline || []) as any[]),
       {
@@ -330,7 +401,24 @@ export const updateRoomShipment = async (req: AuthenticatedRequest, res: Respons
         } as any;
         room.selectedRecyclerId = req.authUser.uid;
       }
-      if (!room.members.some((item: any) => (typeof item === 'string' ? item : item.id) === member.id)) {
+      if (!hasRoomMember(room.members as any[], member)) {
+        room.members = [...(room.members || []), member as any];
+      }
+    }
+    if (actorRole === 'ngo' && req.authUser?.uid) {
+      const member = memberFromUser(req);
+      if (!room.selectedNgo) {
+        room.selectedNgo = {
+          id: req.authUser.uid,
+          name: actorName,
+          role: 'ngo',
+          email: req.authUser.email,
+          phone: req.authUser.phone,
+          address: req.authUser.location?.address,
+        } as any;
+        room.selectedNgoId = req.authUser.uid;
+      }
+      if (!hasRoomMember(room.members as any[], member)) {
         room.members = [...(room.members || []), member as any];
       }
     }

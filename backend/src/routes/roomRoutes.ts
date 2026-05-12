@@ -3,6 +3,7 @@ import {
   addRoomMember,
   addRoomMessage,
   createRoom,
+  deleteRoom,
   getRoom,
   joinRoom,
   listRooms,
@@ -24,5 +25,6 @@ router.post('/:code/messages', authorizeRoles('institution', 'recycler', 'ngo', 
 router.post('/:code/recycler', authorizeRoles('institution', 'admin'), selectRecycler);
 router.post('/:code/shipment', authorizeRoles('institution', 'recycler', 'ngo', 'admin'), updateRoomShipment);
 router.get('/:code', authorizeRoles('institution', 'recycler', 'ngo', 'admin'), getRoom);
+router.delete('/:code', authorizeRoles('institution', 'admin'), deleteRoom);
 
 export default router;

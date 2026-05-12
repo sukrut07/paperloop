@@ -17,6 +17,7 @@ import {
   addLocalRoomMessage,
   createLocalBatch,
   createLocalRoom,
+  deleteLocalRoom,
   getLocalBatches,
   getLocalLogs,
   getLocalRecyclerMatches,
@@ -25,11 +26,13 @@ import {
   getLocalShipmentHistory,
   getPrimaryLocalRoom,
   joinLocalRoom,
+  registerLocalRecycler,
   selectLocalRecycler,
   transitionLocalBatch,
   updateLocalRoomShipment,
 } from './localStore';
 import { getStoredAuthToken } from './auth';
+import { formatTrackingStatus } from './shipmentFlow';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001';
 
@@ -161,10 +164,19 @@ export const api = {
       logs: getLocalLogs(Number(batchId)),
     }),
   analytics: () => request<AnalyticsSummary>('/batch/analytics/summary', undefined, demoAnalytics),
-  listUsers: () => request<UserProfile[]>('/users'),
+  listUsers: () => request<UserProfile[]>('/users', undefined, []),
   listRooms: () => request<Room[]>('/room', undefined, getLocalRooms()),
   ensurePrimaryRoom: (user?: UserProfile | null) => Promise.resolve(getPrimaryLocalRoom(user)),
   getRoom: (code: string) => request<Room | undefined>(`/room/${code}`, undefined, getLocalRoom(code)),
+  deleteRoom: async (code: string) => {
+    try {
+      return await request<{ ok: boolean; code: string }>(`/room/${code}`, { method: 'DELETE' });
+    } catch (error) {
+      const token = getStoredAuthToken();
+      if (token && !token.startsWith('local-demo-token-')) throw error;
+      return deleteLocalRoom(code);
+    }
+  },
   createRoom: async (payload: unknown, user?: UserProfile | null) => {
     try {
       return await request<Room>('/room/create', {
@@ -261,5 +273,50 @@ export const api = {
   },
   recyclerMatches: (location?: Room['pickupLocation'], minKm = 5, maxKm = 20): Promise<RecyclerMatch[]> =>
     Promise.resolve(getLocalRecyclerMatches(location, minKm, maxKm)),
-  shipmentHistory: (): Promise<ShipmentHistoryItem[]> => Promise.resolve(getLocalShipmentHistory()),
+  registerRecycler: (payload: {
+    enterpriseName: string;
+    contactName: string;
+    address: string;
+    phone: string;
+    email: string;
+    capacityKgPerDay?: number;
+    notes?: string;
+  }): Promise<RecyclerMatch> => Promise.resolve(registerLocalRecycler(payload)),
+  shipmentHistory: async (): Promise<ShipmentHistoryItem[]> => {
+    try {
+      const rooms = await request<Room[]>('/room', undefined, getLocalRooms());
+      const batches = await request<Batch[]>('/batch', undefined, getLocalBatches());
+      const completedRooms = rooms.filter((room) => {
+        const status = room.shipmentStatus || 'Created';
+        return status !== 'Created' && status !== 'Rejected';
+      });
+      if (!completedRooms.length) return getLocalShipmentHistory();
+      return completedRooms.map((room) => {
+        const roomBatches = batches.filter((batch) => batch.roomCode === room.code);
+        const deliveryDoc = [...(room.documents || [])].reverse().find((doc) => doc.ownerRole === 'ngo' || doc.kind === 'delivery-proof');
+        const ngoMember = room.members.find((member) => typeof member !== 'string' && member.role === 'ngo');
+        return {
+          id: `history-${room.code}`,
+          roomName: room.name,
+          shipmentName: room.shipmentTitle || room.shipmentName || room.name,
+          recyclerDetails: room.selectedRecycler
+            ? `${room.selectedRecycler.name} · ${room.selectedRecycler.address || 'location saved'} · ${room.selectedRecycler.rating || 'custom'} rating`
+            : 'Recycler details stored in room',
+          ngoDetails: room.selectedNgo
+            ? `${room.selectedNgo.name} · ${room.selectedNgo.phone || 'phone pending'}`
+            : ngoMember && typeof ngoMember !== 'string'
+              ? `${ngoMember.name} · ${ngoMember.email}`
+              : 'NGO details stored in room',
+          totalWeight: roomBatches.reduce((sum, batch) => sum + batch.weight, 0) || room.estimatedWeight || 0,
+          deliveryProof: deliveryDoc?.url || 'Room delivery proof pending',
+          verificationSummary: deliveryDoc?.verification
+            ? `Verified by ${deliveryDoc.verification.verifiedBy} on ${deliveryDoc.verification.verifiedAt.slice(0, 10)}`
+            : `${formatTrackingStatus(room.shipmentStatus || 'Created')} in room ${room.code}`,
+          completedAt: room.updatedAt || room.createdAt || new Date().toISOString(),
+        };
+      }).sort((a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime());
+    } catch {
+      return getLocalShipmentHistory();
+    }
+  },
 };

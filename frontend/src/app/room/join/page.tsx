@@ -6,6 +6,7 @@ import { Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { DoorOpen, LogIn } from 'lucide-react';
 import { api } from '@/lib/api';
+import { uniqueRoomMembers } from '@/lib/roomMembers';
 import type { Room } from '@/lib/types';
 import { useRequireAuth } from '@/lib/auth';
 
@@ -55,7 +56,7 @@ function JoinRoomForm() {
       {error ? <div className="neo-card bg-[var(--coral)] p-4 font-black">{error}</div> : null}
       {room ? (
         <div className="neo-card space-y-4 bg-[var(--cyan)] p-5">
-          <p className="text-xl font-black">Joined {room.name} with {room.members.length} member(s)</p>
+          <p className="text-xl font-black">Joined {room.name} with {uniqueRoomMembers(room).length} member(s)</p>
           <Link href={`/room/${room.code}`} className="neo-button bg-white">Open Shipment Room</Link>
         </div>
       ) : null}

@@ -6,10 +6,11 @@ import { useParams } from 'next/navigation';
 import {
   Bell,
   CalendarClock,
+  CheckSquare,
   Copy,
+  DoorOpen,
   Download,
   ExternalLink,
-  FileImage,
   FileText,
   FolderArchive,
   Hash,
@@ -35,6 +36,7 @@ import { RoomStatusUpdateForm } from '@/components/RoomStatusUpdateForm';
 import { StatusBadge } from '@/components/StatusBadge';
 import { api } from '@/lib/api';
 import { useRequireAuth } from '@/lib/auth';
+import { uniqueRoomMembers } from '@/lib/roomMembers';
 import { formatTrackingStatus } from '@/lib/shipmentFlow';
 import type { Batch, RecyclerMatch, Role, Room, RoomMember, TrackingStatus } from '@/lib/types';
 
@@ -48,6 +50,61 @@ function fileToDataUrl(file: File) {
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
+}
+
+function dataUrlToObjectUrl(dataUrl: string) {
+  if (!dataUrl.startsWith('data:')) return dataUrl;
+  const [header, base64 = ''] = dataUrl.split(',');
+  const mime = header.match(/data:(.*?);base64/)?.[1] || 'application/octet-stream';
+  const binary = window.atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return URL.createObjectURL(new Blob([bytes], { type: mime }));
+}
+
+function ChatAttachment({
+  name,
+  url,
+  kind,
+}: {
+  name?: string;
+  url?: string;
+  kind?: 'message' | 'announcement' | 'file' | 'image';
+}) {
+  if (!url) return null;
+
+  const isImage = kind === 'image' || url.startsWith('data:image/');
+
+  function openAttachment() {
+    if (!url) return;
+    const objectUrl = dataUrlToObjectUrl(url);
+    window.open(objectUrl, '_blank', 'noopener,noreferrer');
+    if (objectUrl.startsWith('blob:')) window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+  }
+
+  return (
+    <div className="mt-3 space-y-2">
+      {isImage ? (
+        <button type="button" onClick={openAttachment} className="block w-fit text-left">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={url} alt={name || 'Shared image'} className="max-h-72 max-w-full rounded-lg border-2 border-black object-contain" />
+        </button>
+      ) : null}
+      <div className="flex flex-wrap gap-2">
+        <button className="neo-button bg-white text-xs" type="button" onClick={openAttachment}>
+          <ExternalLink size={16} />
+          Open
+        </button>
+        <a className="neo-button bg-[var(--yellow)] text-xs" href={url} download={name || 'paperloop-attachment'}>
+          <Download size={16} />
+          Download
+        </a>
+        <span className="break-all rounded-md border-2 border-black bg-[var(--paper)] px-3 py-2 text-sm font-black">
+          {name || 'Attachment'}
+        </span>
+      </div>
+    </div>
+  );
 }
 
 function memberName(member: string | RoomMember) {
@@ -64,6 +121,14 @@ function memberEmail(member: string | RoomMember) {
 
 function memberPhone(member: string | RoomMember) {
   return typeof member === 'string' ? '+91 90000 00000' : member.phone || '+91 90000 00000';
+}
+
+function isCurrentUserMember(room: Room, user?: { uid?: string; email?: string; name?: string } | null) {
+  if (!user) return false;
+  return room.members.some((member) => {
+    if (typeof member === 'string') return member === user.uid || member === user.email || member === user.name;
+    return member.id === user.uid || member.email === user.email || member.name === user.name;
+  });
 }
 
 function nextRecyclerUpdate(status: TrackingStatus) {
@@ -163,6 +228,8 @@ export default function ShipmentRoomPage() {
   const [inviteMode, setInviteMode] = useState<'email' | 'code'>('email');
   const [message, setMessage] = useState('');
   const [messageKind, setMessageKind] = useState<'message' | 'announcement' | 'file' | 'image'>('message');
+  const [messageFile, setMessageFile] = useState<File | null>(null);
+  const [chatActionOpen, setChatActionOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [mapOpen, setMapOpen] = useState(false);
@@ -171,10 +238,18 @@ export default function ShipmentRoomPage() {
   const [paperType, setPaperType] = useState('Answer sheets');
   const [weight, setWeight] = useState(50);
   const [pageCount, setPageCount] = useState(10000);
-  const [proofCount, setProofCount] = useState(1);
   const [documentTitle, setDocumentTitle] = useState('Room proof');
   const [documentFile, setDocumentFile] = useState<File | null>(null);
   const [documentBusy, setDocumentBusy] = useState(false);
+  const [customRecycler, setCustomRecycler] = useState({
+    enterpriseName: '',
+    contactName: '',
+    address: '',
+    phone: '',
+    email: '',
+    capacityKgPerDay: 500,
+    notes: '',
+  });
 
   const load = useCallback(() => {
     api.getRoom(code).then((nextRoom) => {
@@ -200,6 +275,21 @@ export default function ShipmentRoomPage() {
   const canNgoUpdate = user?.role === 'ngo';
   const recyclerStep = nextRecyclerUpdate(activeStatus);
   const ngoStep = nextNgoUpdate(activeStatus);
+  const visibleMembers = uniqueRoomMembers(room);
+  const recyclerMember = visibleMembers.find((item) => memberRole(item) === 'recycler');
+  const ngoMember = visibleMembers.find((item) => memberRole(item) === 'ngo');
+  const isMember = room ? isCurrentUserMember(room, user) : false;
+  const actorName = user?.organizationName || user?.institutionName || user?.name || 'Paperloop member';
+  const recyclerRoomState =
+    activeStatus === 'Created'
+      ? 'Incoming Request'
+      : ['Accepted', 'PickupStarted'].includes(activeStatus)
+        ? 'Accepted Pickup'
+        : ['PickedUp', 'InTransit', 'ReceivedAtPlant', 'Processing', 'Recycled', 'BooksProduced'].includes(activeStatus)
+          ? 'Active Recycling'
+          : ['SentToNGO', 'ReceivedByNGO', 'DistributionStarted', 'Delivered'].includes(activeStatus)
+            ? 'Delivery'
+            : 'Closed';
 
   async function addMember(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -210,16 +300,21 @@ export default function ShipmentRoomPage() {
 
   async function sendMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!message.trim()) return;
+    if (!message.trim() && !messageFile) return;
+    const attachmentUrl = messageFile ? await fileToDataUrl(messageFile) : undefined;
     setRoom(
       await api.addRoomMessage(code, {
         author: user?.name || 'Member',
-        body: message.trim(),
+        body: message.trim() || `${messageFile?.name || 'Attachment'} shared.`,
         kind: messageKind,
+        attachmentName: messageFile?.name,
+        attachmentUrl,
       })
     );
     setMessage('');
+    setMessageFile(null);
     setMessageKind('message');
+    setChatActionOpen(false);
   }
 
   async function createBatch(event: FormEvent<HTMLFormElement>) {
@@ -235,13 +330,17 @@ export default function ShipmentRoomPage() {
       notebooksEstimate: Math.round(weight * 5),
       roomCode: code,
       pickupLocation: room?.pickupLocation || { lat: 18.5204, lng: 73.8567, address: 'Pune, Maharashtra' },
-      proofImages: Array.from({ length: proofCount }, (_, index) => `https://example.com/proofs/${batchId}-${index + 1}.jpg`),
+      proofImages: [`https://example.com/proofs/${batchId}-created.jpg`],
       status: 'Created',
     });
     setBatchTitle('Room paper batch');
     setPageCount(10000);
-    setProofCount(1);
     load();
+  }
+
+  function openChatAction(kind: 'announcement' | 'file' | 'image') {
+    setMessageKind(kind);
+    setChatActionOpen(true);
   }
 
   async function uploadRoomDocument(event: FormEvent<HTMLFormElement>) {
@@ -281,6 +380,29 @@ export default function ShipmentRoomPage() {
     setMapOpen(false);
   }
 
+  async function registerAndSelectRecycler(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const recycler = await api.registerRecycler(customRecycler);
+    setMatches(await api.recyclerMatches(room?.pickupLocation));
+    setCustomRecycler({ enterpriseName: '', contactName: '', address: '', phone: '', email: '', capacityKgPerDay: 500, notes: '' });
+    await selectRecycler(recycler);
+  }
+
+  async function joinThisRoom() {
+    const joinedRoom = await api.joinRoom({ code }, user);
+    setRoom(joinedRoom);
+  }
+
+  async function acceptRecyclerRoom() {
+    await api.updateRoomShipment(code, {
+      status: 'Accepted',
+      actor: actorName,
+      role: 'recycler',
+      message: 'Recycler accepted the room shipment and joined the pickup workflow.',
+    });
+    load();
+  }
+
   if (room === undefined) {
     return <div className="neo-card p-8 text-xl font-black uppercase">Loading shipment room...</div>;
   }
@@ -306,7 +428,13 @@ export default function ShipmentRoomPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-3">
-          <button className="neo-button bg-[var(--cyan)]" onClick={() => setMapOpen(true)}>
+          {!isMember && user?.role === 'recycler' ? (
+            <button className="neo-button bg-[var(--green)]" onClick={joinThisRoom}>
+              <DoorOpen size={18} />
+              Join Room
+            </button>
+          ) : null}
+          <button className="neo-button bg-[var(--cyan)]" onClick={() => setMapOpen(true)} disabled={user?.role !== 'institution'}>
             <Map size={18} />
             Find Recycler
           </button>
@@ -328,7 +456,7 @@ export default function ShipmentRoomPage() {
         </div>
         <div className="neo-card bg-[var(--yellow)] p-5">
           <p className="flex items-center gap-2 text-sm font-black uppercase"><Users size={18} /> Members</p>
-          <p className="mt-3 text-4xl font-black">{room.members.length}</p>
+          <p className="mt-3 text-4xl font-black">{visibleMembers.length}</p>
         </div>
         <div className="neo-card bg-[var(--green)] p-5">
           <p className="flex items-center gap-2 text-sm font-black uppercase"><Package size={18} /> Batches</p>
@@ -339,6 +467,33 @@ export default function ShipmentRoomPage() {
           <div className="mt-4"><StatusBadge status={activeStatus} /></div>
         </div>
       </section>
+
+      {user?.role === 'recycler' ? (
+        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className={`neo-card p-5 ${recyclerRoomState === 'Incoming Request' ? 'bg-[var(--cyan)]' : 'bg-white'}`}>
+            <p className="font-black uppercase">Incoming Request</p>
+            <p className="mt-3 text-3xl font-black">{recyclerRoomState === 'Incoming Request' ? 'Active' : '0'}</p>
+          </div>
+          <div className={`neo-card p-5 ${recyclerRoomState === 'Accepted Pickup' ? 'bg-[var(--yellow)]' : 'bg-white'}`}>
+            <p className="font-black uppercase">Accepted Pickup</p>
+            <p className="mt-3 text-3xl font-black">{recyclerRoomState === 'Accepted Pickup' ? 'Active' : '0'}</p>
+          </div>
+          <div className={`neo-card p-5 ${recyclerRoomState === 'Active Recycling' ? 'bg-[var(--green)]' : 'bg-white'}`}>
+            <p className="font-black uppercase">Active Recycling</p>
+            <p className="mt-3 text-3xl font-black">{recyclerRoomState === 'Active Recycling' ? 'Active' : '0'}</p>
+          </div>
+          <div className={`neo-card p-5 ${recyclerRoomState === 'Delivery' ? 'bg-[var(--paper)]' : 'bg-white'}`}>
+            <p className="font-black uppercase">Delivery</p>
+            <p className="mt-3 text-3xl font-black">{recyclerRoomState === 'Delivery' ? 'Active' : '0'}</p>
+          </div>
+          {isMember && activeStatus === 'Created' ? (
+            <button className="neo-button bg-[var(--yellow)] md:col-span-2 xl:col-span-4" onClick={acceptRecyclerRoom}>
+              <CheckSquare size={18} />
+              Accept Room Shipment
+            </button>
+          ) : null}
+        </section>
+      ) : null}
 
       <section className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr_0.8fr]">
         <div className="neo-card bg-white p-5">
@@ -376,8 +531,10 @@ export default function ShipmentRoomPage() {
         </div>
         <div className="neo-card bg-[var(--paper)] p-5">
           <p className="text-sm font-black uppercase text-[var(--coral)]">NGO Delivery</p>
-          <p className="mt-2 text-2xl font-black">{room.selectedNgo?.name || 'Pending'}</p>
-          <p className="mt-2 font-bold opacity-70">{room.selectedNgo?.phone || 'NGO assignment appears once delivery is accepted.'}</p>
+          <p className="mt-2 text-2xl font-black">{room.selectedNgo?.name || (ngoMember ? memberName(ngoMember) : 'Pending')}</p>
+          <p className="mt-2 font-bold opacity-70">
+            {room.selectedNgo?.phone || room.selectedNgo?.email || (ngoMember ? `${memberEmail(ngoMember)} · ${memberPhone(ngoMember)}` : 'NGO assignment appears once delivery is accepted.')}
+          </p>
           <p className="font-bold opacity-70">{room.documents?.length || 0} room documents stored</p>
         </div>
       </section>
@@ -399,10 +556,10 @@ export default function ShipmentRoomPage() {
           <div className="flex min-h-[540px] flex-col p-5">
             <div className="mb-4 flex items-center justify-between gap-3">
               <h2 className="flex items-center gap-2 text-2xl font-black uppercase"><MessageSquare size={24} /> Room Chat</h2>
-              <div className="flex gap-2">
-                <button className={`neo-button px-3 ${messageKind === 'announcement' ? 'bg-black text-white' : 'bg-white'}`} onClick={() => setMessageKind('announcement')} type="button"><Bell size={16} /></button>
-                <button className={`neo-button px-3 ${messageKind === 'file' ? 'bg-black text-white' : 'bg-white'}`} onClick={() => setMessageKind('file')} type="button"><Paperclip size={16} /></button>
-                <button className={`neo-button px-3 ${messageKind === 'image' ? 'bg-black text-white' : 'bg-white'}`} onClick={() => setMessageKind('image')} type="button"><ImageIcon size={16} /></button>
+              <div className="flex flex-wrap gap-2">
+                <button className="neo-button bg-white px-3 text-xs" onClick={() => openChatAction('announcement')} type="button" title="Post announcement"><Bell size={16} /> Announce</button>
+                <button className="neo-button bg-white px-3 text-xs" onClick={() => openChatAction('file')} type="button" title="Upload file note"><Paperclip size={16} /> File</button>
+                <button className="neo-button bg-white px-3 text-xs" onClick={() => openChatAction('image')} type="button" title="Upload image note"><ImageIcon size={16} /> Image</button>
               </div>
             </div>
             <div className="flex-1 space-y-3 overflow-auto rounded-lg border-[3px] border-black bg-[var(--paper)] p-4">
@@ -410,6 +567,7 @@ export default function ShipmentRoomPage() {
                 <div key={item.id} className="max-w-3xl rounded-lg border-2 border-black bg-white p-3 shadow-[3px_3px_0_#111]">
                   <p className="text-xs font-black uppercase opacity-60">{item.author} · {item.kind || 'message'} · {new Date(item.createdAt).toLocaleString()}</p>
                   <p className="mt-1 font-bold">{item.body}</p>
+                  <ChatAttachment name={item.attachmentName} url={item.attachmentUrl} kind={item.kind} />
                 </div>
               ))}
             </div>
@@ -420,7 +578,7 @@ export default function ShipmentRoomPage() {
           </div>
           <aside className="border-t-[3px] border-black bg-[var(--cyan)] p-5 lg:border-l-[3px] lg:border-t-0">
             <h3 className="text-xl font-black uppercase">Shared Room</h3>
-            <p className="mt-2 font-bold">{room.members.map(memberName).slice(0, 6).join(', ')}</p>
+            <p className="mt-2 font-bold">{visibleMembers.map(memberName).slice(0, 6).join(', ')}</p>
             <div className="mt-5 space-y-3">
               <div className="rounded-lg border-2 border-black bg-white p-3">
                 <p className="text-sm font-black uppercase">Announcements</p>
@@ -462,10 +620,6 @@ export default function ShipmentRoomPage() {
                 <input className="neo-input" type="number" min={1} value={pageCount} onChange={(event) => setPageCount(Number(event.target.value))} disabled={!canCreateBatch} required />
               </label>
             </div>
-            <label className="block space-y-2">
-              <span className="flex items-center gap-2 text-sm font-black uppercase"><FileImage size={18} /> Proof Upload Count</span>
-              <input className="neo-input" type="number" min={1} max={6} value={proofCount} onChange={(event) => setProofCount(Number(event.target.value))} disabled={!canCreateBatch} />
-            </label>
             <button className="neo-button w-full bg-[var(--yellow)]" disabled={!canCreateBatch}><Plus size={18} /> Add Batch</button>
           </form>
 
@@ -481,7 +635,6 @@ export default function ShipmentRoomPage() {
                 </div>
                 <div className="mt-4 grid gap-2 sm:grid-cols-3">
                   <span className="rounded-lg border-2 border-black bg-[var(--paper)] p-3 text-sm font-black">{batch.notebooksEstimate || Math.round(batch.weight * 5)} notebooks est.</span>
-                  <span className="rounded-lg border-2 border-black bg-[var(--paper)] p-3 text-sm font-black">{batch.proofImages?.length || 0} proof uploads</span>
                   <span className="rounded-lg border-2 border-black bg-[var(--paper)] p-3 text-sm font-black">
                     {batch.verificationTimestamp ? 'System verified' : 'Awaiting verification'}
                   </span>
@@ -515,15 +668,29 @@ export default function ShipmentRoomPage() {
               Copy Join Link
             </button>
           </form>
-          <div className="grid gap-4 md:grid-cols-2">
-            {room.members.map((item) => (
-              <div key={memberEmail(item)} className="neo-card bg-white p-5">
-                <p className="text-2xl font-black">{memberName(item)}</p>
-                <p className="mt-1 font-black uppercase text-[var(--coral)]">{memberRole(item)}</p>
-                <p className="mt-3 font-bold">{memberEmail(item)}</p>
-                <p className="flex items-center gap-2 font-bold opacity-70"><Phone size={16} /> {memberPhone(item)}</p>
+          <div className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="neo-card bg-[var(--cyan)] p-5">
+                <p className="text-sm font-black uppercase">Recycler in room</p>
+                <p className="mt-2 text-2xl font-black">{room.selectedRecycler?.name || (recyclerMember ? memberName(recyclerMember) : 'Not added yet')}</p>
+                <p className="mt-1 font-bold opacity-70">{room.selectedRecycler?.address || room.selectedRecycler?.phone || 'Add a recycler from the finder or invite by join code.'}</p>
               </div>
-            ))}
+              <div className="neo-card bg-[var(--green)] p-5">
+                <p className="text-sm font-black uppercase">NGO supplied to</p>
+                <p className="mt-2 text-2xl font-black">{room.selectedNgo?.name || (ngoMember ? memberName(ngoMember) : 'Not assigned yet')}</p>
+                <p className="mt-1 font-bold opacity-70">{room.selectedNgo?.phone || 'NGO details appear when delivery/distribution updates are posted.'}</p>
+              </div>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              {visibleMembers.map((item) => (
+                <div key={memberEmail(item)} className="neo-card bg-white p-5">
+                  <p className="text-2xl font-black">{memberName(item)}</p>
+                  <p className="mt-1 font-black uppercase text-[var(--coral)]">{memberRole(item)}</p>
+                  <p className="mt-3 font-bold">{memberEmail(item)}</p>
+                  <p className="flex items-center gap-2 font-bold opacity-70"><Phone size={16} /> {memberPhone(item)}</p>
+                </div>
+              ))}
+            </div>
           </div>
         </section>
       ) : null}
@@ -711,6 +878,42 @@ export default function ShipmentRoomPage() {
         </section>
       ) : null}
 
+      {chatActionOpen ? (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4">
+          <form onSubmit={sendMessage} className="neo-card w-full max-w-2xl space-y-4 bg-white p-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-black uppercase text-[var(--coral)]">Room chat</p>
+                <h2 className="text-3xl font-black uppercase">
+                  {messageKind === 'announcement' ? 'Post Announcement' : messageKind === 'image' ? 'Upload Image Note' : 'Upload File Note'}
+                </h2>
+              </div>
+              <button className="neo-button bg-white p-2" type="button" onClick={() => setChatActionOpen(false)} aria-label="Close chat action">
+                <X size={18} />
+              </button>
+            </div>
+            <textarea
+              className="neo-input min-h-32"
+              value={message}
+              onChange={(event) => setMessage(event.target.value)}
+              placeholder={messageKind === 'announcement' ? 'Write the announcement for all room members' : 'Add a note for this upload'}
+            />
+            {messageKind !== 'announcement' ? (
+              <input
+                className="neo-input"
+                type="file"
+                accept={messageKind === 'image' ? 'image/*' : undefined}
+                onChange={(event) => setMessageFile(event.target.files?.[0] || null)}
+              />
+            ) : null}
+            <button className="neo-button w-full bg-[var(--yellow)]">
+              <Send size={18} />
+              Share In Room
+            </button>
+          </form>
+        </div>
+      ) : null}
+
       {chatOpen ? (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4">
           <div className="neo-card max-h-[86vh] w-full max-w-4xl overflow-auto bg-white p-5">
@@ -723,6 +926,7 @@ export default function ShipmentRoomPage() {
                 <div key={item.id} className="rounded-lg border-2 border-black bg-white p-3">
                   <p className="text-xs font-black uppercase opacity-60">{item.author} · {item.kind || 'message'}</p>
                   <p className="font-bold">{item.body}</p>
+                  <ChatAttachment name={item.attachmentName} url={item.attachmentUrl} kind={item.kind} />
                 </div>
               ))}
             </div>
@@ -771,14 +975,32 @@ export default function ShipmentRoomPage() {
               </div>
               <button className="neo-button bg-white p-2" onClick={() => setMapOpen(false)} aria-label="Close map"><X size={18} /></button>
             </div>
-            <div className="grid gap-5 lg:grid-cols-[1fr_360px]">
-              <MapPanel address={room.pickupLocation?.address || 'Pune, Maharashtra'} title="Recycler matching map" heightClassName="h-[360px]" />
-              <div className="space-y-3">
-                {matches.map((recycler) => (
-                  <div key={recycler.id} className="rounded-lg border-[3px] border-black bg-[var(--paper)] p-4">
-                    <p className="text-xl font-black">{recycler.name}</p>
+              <div className="grid gap-5 lg:grid-cols-[1fr_360px]">
+                <MapPanel
+                  address={room.pickupLocation?.address || 'Pune, Maharashtra'}
+                  searchQuery={`paper recycling centers near ${room.pickupLocation?.address || 'Pune, Maharashtra'}`}
+                  title="Recycler matching map"
+                  heightClassName="h-[360px]"
+                />
+                <div className="space-y-3">
+                  <form onSubmit={registerAndSelectRecycler} className="space-y-2 rounded-lg border-[3px] border-black bg-white p-4">
+                    <p className="font-black uppercase text-[var(--coral)]">Add custom recycler</p>
+                    <input className="neo-input" placeholder="Enterprise name" value={customRecycler.enterpriseName} onChange={(event) => setCustomRecycler((current) => ({ ...current, enterpriseName: event.target.value }))} required />
+                    <input className="neo-input" placeholder="Recycler name" value={customRecycler.contactName} onChange={(event) => setCustomRecycler((current) => ({ ...current, contactName: event.target.value }))} required />
+                    <input className="neo-input" placeholder="Location" value={customRecycler.address} onChange={(event) => setCustomRecycler((current) => ({ ...current, address: event.target.value }))} required />
+                    <input className="neo-input" placeholder="Phone" value={customRecycler.phone} onChange={(event) => setCustomRecycler((current) => ({ ...current, phone: event.target.value }))} required />
+                    <input className="neo-input" type="email" placeholder="Email ID" value={customRecycler.email} onChange={(event) => setCustomRecycler((current) => ({ ...current, email: event.target.value }))} required />
+                    <button className="neo-button w-full bg-[var(--yellow)] text-xs" disabled={!canSelectRecycler}>
+                      <Plus size={16} />
+                      Register And Connect
+                    </button>
+                  </form>
+                  {matches.map((recycler) => (
+                    <div key={recycler.id} className="rounded-lg border-[3px] border-black bg-[var(--paper)] p-4">
+                      <p className="text-xl font-black">{recycler.name}</p>
                     <p className="font-bold">{recycler.rating} rating · {recycler.distanceKm} km · {recycler.capacityKgPerDay} kg/day</p>
-                    <p className="font-bold opacity-70">{recycler.phone}</p>
+                    <p className="font-bold opacity-70">{recycler.address} · {recycler.phone}</p>
+                    {recycler.email ? <p className="break-all font-bold opacity-70">{recycler.email}</p> : null}
                     <button className="neo-button mt-3 w-full bg-[var(--green)] text-xs" disabled={!canSelectRecycler} onClick={() => selectRecycler(recycler)}>
                       <Share2 size={16} />
                       Connect Recycler
