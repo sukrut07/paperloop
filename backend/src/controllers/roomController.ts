@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { Batch, Room, TrackingStatus, UserRole } from '../models';
+import { Batch, Room, TrackingStatus, User, UserRole } from '../models';
 import { AuthenticatedRequest } from '../middleware/authMiddleware';
 
 function createId(prefix: string) {
@@ -316,18 +316,45 @@ export const selectRecycler = async (req: AuthenticatedRequest, res: Response) =
     const room = await Room.findOne({ code: req.params.code });
     if (!room) return res.status(404).json({ error: 'Room not found' });
 
-    const recycler = {
-      id: req.body.id,
-      name: req.body.name,
-      role: 'recycler',
-      email: req.body.email,
-      phone: req.body.phone,
-      address: req.body.address,
-      rating: req.body.rating,
-      distanceKm: req.body.distanceKm,
-      capacityKgPerDay: req.body.capacityKgPerDay,
-    };
-    const notification = notificationFor(room, 'Recycler request sent', `${roomActor(req)} requested pickup from ${recycler.name}.`);
+    const registeredEmail = String(req.body.registeredEmail || '').trim().toLowerCase();
+    const registeredRecycler = registeredEmail ? await User.findOne({ email: registeredEmail }) : null;
+
+    if (registeredEmail && !registeredRecycler) {
+      return res.status(404).json({ error: 'No registered Paperloop account found for this recycler email.' });
+    }
+
+    if (registeredRecycler && registeredRecycler.role !== 'recycler') {
+      return res.status(400).json({ error: 'This email is registered, but it is not registered as a recycler.' });
+    }
+
+    const recycler = registeredRecycler
+      ? {
+          id: registeredRecycler.uid,
+          name: registeredRecycler.institutionName || registeredRecycler.name,
+          role: 'recycler',
+          email: registeredRecycler.email,
+          phone: registeredRecycler.phone,
+          address: registeredRecycler.location?.address,
+          rating: 4.5,
+          distanceKm: req.body.distanceKm,
+          capacityKgPerDay: req.body.capacityKgPerDay || 500,
+        }
+      : {
+          id: req.body.id,
+          name: req.body.name,
+          role: 'recycler',
+          email: req.body.email,
+          phone: req.body.phone,
+          address: req.body.address,
+          rating: req.body.rating,
+          distanceKm: req.body.distanceKm,
+          capacityKgPerDay: req.body.capacityKgPerDay,
+        };
+
+    if (!recycler.id || !recycler.name) {
+      return res.status(400).json({ error: 'Select a recycler or enter a registered recycler email.' });
+    }
+
     room.selectedRecycler = recycler as any;
     room.selectedRecyclerId = recycler.id;
     room.recyclerResponse = 'pending';
@@ -343,6 +370,7 @@ export const selectRecycler = async (req: AuthenticatedRequest, res: Response) =
         } as any,
       ];
     }
+    const notification = notificationFor(room, 'Recycler request sent', `${roomActor(req)} requested pickup from ${recycler.name}.`);
     room.timeline = [
       ...((room.timeline || []) as any[]),
       {

@@ -49,7 +49,17 @@ async function request<T>(path: string, options?: RequestInit, fallback?: T): Pr
       cache: 'no-store',
     });
 
-    if (!response.ok) throw new Error(await response.text());
+    if (!response.ok) {
+      const text = await response.text();
+      let message = text;
+      try {
+        const parsed = JSON.parse(text) as { error?: string; message?: string };
+        message = parsed.error || parsed.message || text;
+      } catch {
+        message = text;
+      }
+      throw new Error(message);
+    }
     return response.json() as Promise<T>;
   } catch (error) {
     if (fallback !== undefined) return fallback;
@@ -246,8 +256,32 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(recycler),
       });
-    } catch {
+    } catch (error) {
+      const token = getStoredAuthToken();
+      if (token && !token.startsWith('local-demo-token-')) throw error;
       return selectLocalRecycler(code, recycler);
+    }
+  },
+  connectRegisteredRecycler: async (code: string, email: string) => {
+    try {
+      return await request<Room>(`/room/${code}/recycler`, {
+        method: 'POST',
+        body: JSON.stringify({ registeredEmail: email }),
+      });
+    } catch (error) {
+      const token = getStoredAuthToken();
+      if (token && !token.startsWith('local-demo-token-')) throw error;
+      return selectLocalRecycler(code, {
+        id: `registered-recycler-${email.toLowerCase()}`,
+        name: email.split('@')[0] || 'Registered recycler',
+        rating: 4.5,
+        distanceKm: 5,
+        phone: '+91 90000 00000',
+        email,
+        capacityKgPerDay: 500,
+        address: 'Registered recycler address',
+        isCustom: true,
+      });
     }
   },
   updateRoomShipment: async (

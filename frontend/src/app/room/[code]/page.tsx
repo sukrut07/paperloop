@@ -241,15 +241,9 @@ export default function ShipmentRoomPage() {
   const [documentTitle, setDocumentTitle] = useState('Room proof');
   const [documentFile, setDocumentFile] = useState<File | null>(null);
   const [documentBusy, setDocumentBusy] = useState(false);
-  const [customRecycler, setCustomRecycler] = useState({
-    enterpriseName: '',
-    contactName: '',
-    address: '',
-    phone: '',
-    email: '',
-    capacityKgPerDay: 500,
-    notes: '',
-  });
+  const [customRecyclerEmail, setCustomRecyclerEmail] = useState('');
+  const [customRecyclerBusy, setCustomRecyclerBusy] = useState(false);
+  const [customRecyclerError, setCustomRecyclerError] = useState<string>();
 
   const load = useCallback(() => {
     api.getRoom(code).then((nextRoom) => {
@@ -280,6 +274,10 @@ export default function ShipmentRoomPage() {
   const ngoMember = visibleMembers.find((item) => memberRole(item) === 'ngo');
   const isMember = room ? isCurrentUserMember(room, user) : false;
   const actorName = user?.organizationName || user?.institutionName || user?.name || 'Paperloop member';
+  const recyclerProofs = useMemo(
+    () => (room?.documents || []).filter((doc) => doc.ownerRole === 'recycler'),
+    [room?.documents]
+  );
   const recyclerRoomState =
     activeStatus === 'Created'
       ? 'Incoming Request'
@@ -382,10 +380,18 @@ export default function ShipmentRoomPage() {
 
   async function registerAndSelectRecycler(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const recycler = await api.registerRecycler(customRecycler);
-    setMatches(await api.recyclerMatches(room?.pickupLocation));
-    setCustomRecycler({ enterpriseName: '', contactName: '', address: '', phone: '', email: '', capacityKgPerDay: 500, notes: '' });
-    await selectRecycler(recycler);
+    if (!customRecyclerEmail.trim()) return;
+    setCustomRecyclerBusy(true);
+    setCustomRecyclerError(undefined);
+    try {
+      setRoom(await api.connectRegisteredRecycler(code, customRecyclerEmail.trim()));
+      setCustomRecyclerEmail('');
+      setMapOpen(false);
+    } catch (error) {
+      setCustomRecyclerError(error instanceof Error ? error.message : 'Could not connect registered recycler.');
+    } finally {
+      setCustomRecyclerBusy(false);
+    }
   }
 
   async function joinThisRoom() {
@@ -739,13 +745,13 @@ export default function ShipmentRoomPage() {
               <h3 className="text-2xl font-black uppercase">Shipment Updates</h3>
               <div className="mt-4 grid gap-4 md:grid-cols-2">
                 <div className="rounded-lg border-[3px] border-black bg-[var(--paper)] p-4">
-                  <p className="flex items-center gap-2 text-sm font-black uppercase"><CalendarClock size={18} /> Current Room State</p>
+                  <p className="flex items-center gap-2 text-sm font-black uppercase"><CalendarClock size={18} /> This Room State</p>
                   <p className="mt-2 text-2xl font-black">{formatTrackingStatus(activeStatus)}</p>
-                  <p className="mt-2 font-bold opacity-70">All tracking in this room now follows the shared shipment lifecycle instead of a global batch page.</p>
+                  <p className="mt-2 font-bold opacity-70">This status belongs only to room {room.code}; it is not exposed as a global dashboard workflow.</p>
                 </div>
                 <div className="rounded-lg border-[3px] border-black bg-[var(--paper)] p-4">
                   <p className="flex items-center gap-2 text-sm font-black uppercase"><ShieldCheck size={18} /> Required Proofs</p>
-                  <p className="mt-2 font-bold opacity-70">Institution proof, recycler proof, NGO proof, and delivery proof stay attached to the room with system verification.</p>
+                  <p className="mt-2 font-bold opacity-70">Recycler tracker updates require uploaded proof, and the institute can verify that evidence here in this room.</p>
                 </div>
               </div>
 
@@ -767,6 +773,7 @@ export default function ShipmentRoomPage() {
                     label={recyclerStep.label}
                     message={recyclerStep.message}
                     onUpdated={load}
+                    requireProof
                   />
                 </div>
               ) : null}
@@ -789,7 +796,7 @@ export default function ShipmentRoomPage() {
             </div>
 
             <div className="neo-card bg-[var(--paper)] p-5">
-              <h3 className="text-2xl font-black uppercase">Room Notes</h3>
+              <h3 className="text-2xl font-black uppercase">Room Proof Status</h3>
               <div className="mt-4 space-y-3">
                 <div className="rounded-lg border-2 border-black bg-white p-3">
                   <p className="text-sm font-black uppercase">Recycler</p>
@@ -804,12 +811,46 @@ export default function ShipmentRoomPage() {
                   <p className="mt-1 font-bold">{room.documents?.length || 0} documents in this room</p>
                 </div>
                 <div className="rounded-lg border-2 border-black bg-white p-3">
+                  <p className="text-sm font-black uppercase">Recycler Tracker Proof</p>
+                  <p className="mt-1 font-bold">{recyclerProofs.length ? `${recyclerProofs.length} proof uploads visible to institute` : 'Waiting for recycler tracker upload'}</p>
+                </div>
+                <div className="rounded-lg border-2 border-black bg-white p-3">
                   <p className="flex items-center gap-2 text-sm font-black uppercase"><Bell size={16} /> Notifications</p>
                   <p className="mt-1 font-bold">{room.notifications?.length || 0} email notifications sent</p>
                 </div>
               </div>
             </div>
           </div>
+
+          {user?.role === 'institution' ? (
+            <div className="neo-card bg-white p-5">
+              <h3 className="text-2xl font-black uppercase">Recycler Proofs For This Room</h3>
+              <div className="mt-4 grid gap-4 md:grid-cols-2">
+                {recyclerProofs.length ? recyclerProofs.map((doc) => (
+                  <div key={doc.id} className="rounded-lg border-[3px] border-black bg-[var(--paper)] p-4">
+                    <p className="flex items-center gap-2 text-xl font-black"><ShieldCheck size={20} /> {doc.title}</p>
+                    <p className="mt-1 font-black uppercase text-[var(--coral)]">{doc.uploadedBy || 'Recycler tracker'}</p>
+                    <p className="mt-2 break-all font-bold opacity-70">{doc.proofFileName || doc.url || 'Proof stored in room vault'}</p>
+                    {doc.verification ? (
+                      <p className="mt-2 text-sm font-bold text-green-700">
+                        Verified by {doc.verification.verifiedBy} · {new Date(doc.verification.verifiedAt).toLocaleString()}
+                      </p>
+                    ) : null}
+                    {doc.url ? (
+                      <a className="neo-button mt-4 bg-[var(--yellow)] text-xs" href={doc.url} target="_blank" rel="noreferrer">
+                        <ExternalLink size={16} />
+                        View Proof
+                      </a>
+                    ) : null}
+                  </div>
+                )) : (
+                  <div className="rounded-lg border-[3px] border-black bg-[var(--paper)] p-4 font-black md:col-span-2">
+                    No recycler tracker proof has been uploaded in this room yet.
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : null}
         </section>
       ) : null}
 
@@ -983,16 +1024,21 @@ export default function ShipmentRoomPage() {
                   heightClassName="h-[360px]"
                 />
                 <div className="space-y-3">
-                  <form onSubmit={registerAndSelectRecycler} className="space-y-2 rounded-lg border-[3px] border-black bg-white p-4">
+                  <form onSubmit={registerAndSelectRecycler} className="space-y-3 rounded-lg border-[3px] border-black bg-white p-4">
                     <p className="font-black uppercase text-[var(--coral)]">Add custom recycler</p>
-                    <input className="neo-input" placeholder="Enterprise name" value={customRecycler.enterpriseName} onChange={(event) => setCustomRecycler((current) => ({ ...current, enterpriseName: event.target.value }))} required />
-                    <input className="neo-input" placeholder="Recycler name" value={customRecycler.contactName} onChange={(event) => setCustomRecycler((current) => ({ ...current, contactName: event.target.value }))} required />
-                    <input className="neo-input" placeholder="Location" value={customRecycler.address} onChange={(event) => setCustomRecycler((current) => ({ ...current, address: event.target.value }))} required />
-                    <input className="neo-input" placeholder="Phone" value={customRecycler.phone} onChange={(event) => setCustomRecycler((current) => ({ ...current, phone: event.target.value }))} required />
-                    <input className="neo-input" type="email" placeholder="Email ID" value={customRecycler.email} onChange={(event) => setCustomRecycler((current) => ({ ...current, email: event.target.value }))} required />
-                    <button className="neo-button w-full bg-[var(--yellow)] text-xs" disabled={!canSelectRecycler}>
+                    <p className="text-sm font-bold opacity-70">Enter the recycler&apos;s registered Paperloop email. The account must already be signed up as a recycler.</p>
+                    <input
+                      className="neo-input"
+                      type="email"
+                      placeholder="Recycler registered email"
+                      value={customRecyclerEmail}
+                      onChange={(event) => setCustomRecyclerEmail(event.target.value)}
+                      required
+                    />
+                    {customRecyclerError ? <p className="font-black text-[var(--coral)]">{customRecyclerError}</p> : null}
+                    <button className="neo-button w-full bg-[var(--yellow)] text-xs" disabled={!canSelectRecycler || customRecyclerBusy}>
                       <Plus size={16} />
-                      Register And Connect
+                      {customRecyclerBusy ? 'Checking...' : 'Send Room Request'}
                     </button>
                   </form>
                   {matches.map((recycler) => (
